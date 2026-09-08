@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: deep_research_backend
+    ports:
+      - "8000:8000"
+    environment:
+      - MONGODB_URL=mongodb://mongodb:27017
+      - MONGODB_DB_NAME=deep_research_ai
+      - ENVIRONMENT=production
+      - DEBUG=False
+    env_file:
+      - .env
+    depends_on:
+      - mongodb
+    restart: always
+
+  mongodb:
+    image: mongo:6.0
+    container_name: deep_research_mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    restart: always
+
+volumes:
+  mongo_data:

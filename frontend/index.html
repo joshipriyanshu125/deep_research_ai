@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deep Research AI — Autonomous Research Agent</title>
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- Marked Markdown Parser -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-layout">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-icon">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                    </svg>
+                </div>
+                <div class="brand-text">
+                    <h2>Deep Research</h2>
+                    <span class="badge">v1.0 Autonomous</span>
+                </div>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="section-title">Research History</div>
+                <div id="historyList" class="history-list">
+                    <div class="empty-state-text">No research runs yet</div>
+                </div>
+            </div>
+
+            <div class="sidebar-footer">
+                <div class="status-indicator">
+                    <span class="status-dot pulsing"></span>
+                    <span class="status-label">Backend Online</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Header Query Input Section -->
+            <section class="hero-section">
+                <h1 class="hero-title">Autonomous Deep Research Platform</h1>
+                <p class="hero-subtitle">Recursive query decomposition, multi-track search, RAG evidence extraction, and rigorous fact synthesis.</p>
+
+                <div class="research-input-card">
+                    <div class="input-container">
+                        <textarea id="researchQuery" placeholder="Enter any complex research question (e.g. 'Frontier AI agent architectures, reasoning test-time compute scaling, and memory mechanisms in 2026')..." rows="3"></textarea>
+                    </div>
+
+                    <div class="options-bar">
+                        <div class="option-group">
+                            <label>Depth</label>
+                            <select id="depthSelect">
+                                <option value="1">Standard (1 Iteration)</option>
+                                <option value="2" selected>Deep (2 Iterations)</option>
+                                <option value="3">Comprehensive (3 Iterations)</option>
+                            </select>
+                        </div>
+                        <div class="option-group">
+                            <label>Breadth</label>
+                            <select id="breadthSelect">
+                                <option value="3" selected>3 Vector Tracks</option>
+                                <option value="5">5 Vector Tracks</option>
+                            </select>
+                        </div>
+                        <div class="option-group checkboxes">
+                            <label class="check-label"><input type="checkbox" id="catWeb" checked> Web</label>
+                            <label class="check-label"><input type="checkbox" id="catAcademic" checked> Academic</label>
+                            <label class="check-label"><input type="checkbox" id="catMarket" checked> Market</label>
+                        </div>
+
+                        <button id="startResearchBtn" class="primary-btn">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                            </svg>
+                            <span>Launch Deep Research</span>
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Mission Control Section (Active Execution) -->
+            <section id="missionControl" class="mission-control hidden">
+                <div class="mission-header">
+                    <div class="mission-title-group">
+                        <div class="pulse-ring"></div>
+                        <div>
+                            <h3 id="currentStepText">Decomposing research query...</h3>
+                            <span id="activeJobId" class="job-id-tag">Job ID: --</span>
+                        </div>
+                    </div>
+                    <div class="progress-container">
+                        <div class="progress-bar-bg">
+                            <div id="progressBarFill" class="progress-bar-fill" style="width: 10%;"></div>
+                        </div>
+                        <span id="progressPercent" class="progress-text">10%</span>
+                    </div>
+                </div>
+
+                <div class="grid-2col">
+                    <!-- Parallel Tasks & Sub-Queries -->
+                    <div class="dashboard-card">
+                        <div class="card-header">
+                            <h4>Exploration Vector Tracks</h4>
+                            <span id="tasksCountBadge" class="badge">0 Tracks</span>
+                        </div>
+                        <div id="tasksContainer" class="tasks-container">
+                            <div class="loading-state">Initializing planner agent...</div>
+                        </div>
+                    </div>
+
+                    <!-- Evidence & Sources Stream -->
+                    <div class="dashboard-card">
+                        <div class="card-header">
+                            <h4>Live Harvested Sources & Evidence</h4>
+                            <span id="sourcesCountBadge" class="badge">0 Sources</span>
+                        </div>
+                        <div id="sourcesContainer" class="sources-container">
+                            <div class="loading-state">Awaiting search & extraction results...</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Final Report Section -->
+            <section id="reportSection" class="report-section hidden">
+                <div class="report-header">
+                    <div class="report-meta">
+                        <h2 id="reportTitle">Research Report</h2>
+                        <div class="report-badges">
+                            <span class="badge success">Verified Epistemic Score: 9.6/10</span>
+                            <span id="citationCountBadge" class="badge">0 Citations</span>
+                        </div>
+                    </div>
+                    <div class="export-actions">
+                        <button id="copyMarkdownBtn" class="secondary-btn">Copy Markdown</button>
+                        <button id="downloadHtmlBtn" class="secondary-btn">Export HTML</button>
+                    </div>
+                </div>
+
+                <div class="report-card">
+                    <div id="reportMarkdownBody" class="markdown-body"></div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
