@@ -27,10 +27,13 @@ class Settings(BaseSettings):
     MONGODB_DB_NAME: str = "deep_research_ai"
 
     # LLM Providers
-    LLM_PROVIDER: str = "openai"  # openai, gemini, anthropic, mock
+    LLM_PROVIDER: str = "openrouter"  # openrouter, openai, gemini, anthropic, mock
+    OPENROUTER_API_KEY: Optional[str] = ""
     OPENAI_API_KEY: Optional[str] = ""
     GEMINI_API_KEY: Optional[str] = ""
     ANTHROPIC_API_KEY: Optional[str] = ""
+    LLM_MODEL: Optional[str] = "openrouter/free"
+    LLM_BASE_URL: Optional[str] = "https://openrouter.ai/api/v1"
     DEFAULT_MODEL: str = "gpt-4o-mini"
     EMBEDDING_MODEL: str = "text-embedding-3-small"
 

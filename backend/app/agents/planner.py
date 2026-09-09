@@ -1,6 +1,6 @@
 import json
 from typing import List
-from app.llm.openai import get_llm_provider
+from app.llm.service import LLMService, get_llm_service
 from app.llm.prompts import PLANNER_SYSTEM_PROMPT
 from app.database.models.research import ResearchTask
 from app.utils.logger import logger
@@ -8,7 +8,7 @@ from app.utils.logger import logger
 
 class PlannerAgent:
     def __init__(self, provider_type: str = None):
-        self.llm = get_llm_provider(provider_type)
+        self.llm = get_llm_service()
 
     async def plan_research_tasks(self, query: str, depth: int = 2, breadth: int = 3) -> List[ResearchTask]:
         prompt = (
@@ -18,7 +18,7 @@ class PlannerAgent:
         )
         
         try:
-            raw_json = await self.llm.generate_structured_json(prompt, system_prompt=PLANNER_SYSTEM_PROMPT)
+            raw_json = await self.llm.generate_json(prompt, system_prompt=PLANNER_SYSTEM_PROMPT)
             parsed = json.loads(raw_json)
             tasks = []
             for item in parsed:

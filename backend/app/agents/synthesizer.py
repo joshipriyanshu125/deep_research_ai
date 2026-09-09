@@ -1,5 +1,5 @@
 from typing import List, Dict, Any
-from app.llm.openai import get_llm_provider
+from app.llm.service import LLMService, get_llm_service
 from app.llm.prompts import SYNTHESIZER_SYSTEM_PROMPT
 from app.database.models.source import Source
 from app.database.models.evidence import Evidence
@@ -8,7 +8,7 @@ from app.database.models.report import ResearchReport, ReportSection, Citation
 
 class SynthesizerAgent:
     def __init__(self, provider_type: str = None):
-        self.llm = get_llm_provider(provider_type)
+        self.llm = get_llm_service()
 
     async def synthesize_report(
         self,
@@ -26,7 +26,7 @@ class SynthesizerAgent:
             "quantitative comparative breakdown, risks, and strategic horizon."
         )
 
-        markdown_body = await self.llm.generate_text(prompt, system_prompt=SYNTHESIZER_SYSTEM_PROMPT, max_tokens=4000)
+        markdown_body = await self.llm.generate(prompt, system_prompt=SYNTHESIZER_SYSTEM_PROMPT, max_tokens=4000)
         
         # Build structured sections
         sections = [
