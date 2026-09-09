@@ -230,6 +230,35 @@ const resumeResearch = async (req, res) => {
 };
 
 /**
+ * @desc    Retry a failed research job
+ * @route   POST /research/:id/retry or POST /api/research/:id/retry
+ * @access  Protected (Owner or Admin)
+ */
+const retryResearch = async (req, res) => {
+    try {
+        const researchId = req.params.id;
+
+        const retried = await researchQueue.retry(researchId);
+
+        return res.status(200).json({
+            success: true,
+            message: `Research retry initiated (Attempt ${retried.retryCount}/${retried.maxRetries})`,
+            research_id: researchId,
+            id: researchId,
+            status: retried.status,
+            retryCount: retried.retryCount,
+            maxRetries: retried.maxRetries,
+            data: retried
+        });
+    } catch (error) {
+        return res.status(400).json({
+            success: false,
+            message: error.message || "Failed to retry research job"
+        });
+    }
+};
+
+/**
  * @desc    Delete research item and associated reports
  * @route   DELETE /research/:id or DELETE /api/research/:id
  * @access  Protected (Owner or Admin)
@@ -267,5 +296,6 @@ module.exports = {
     updateResearch,
     cancelResearch,
     resumeResearch,
+    retryResearch,
     deleteResearch
 };

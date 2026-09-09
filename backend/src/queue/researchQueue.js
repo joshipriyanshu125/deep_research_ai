@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const Research = require("../models/Research");
 const researchWorker = require("../workers/researchWorker");
+const stateMachine = require("../services/researchStateMachine");
 
 class ResearchQueue {
     constructor() {
@@ -75,7 +76,7 @@ class ResearchQueue {
     }
 
     /**
-     * Resume a cancelled or failed job
+     * Resume a cancelled, paused, or failed job
      * @param {string} researchId
      */
     async resumeJob(researchId) {
@@ -92,18 +93,29 @@ class ResearchQueue {
             return research;
         }
 
-        // Reset status to queued
-        research.status = "queued";
-        research.error = null;
-        research.currentStep = "Re-queued in research queue";
-        research.logs.push({
-            timestamp: new Date(),
-            stage: "queued",
+        // Use state machine to transition to QUEUED
+        await stateMachine.transition(research, stateMachine.STATES.QUEUED, {
             message: "Research job resumed and added back to queue."
         });
-        await research.save();
 
         // Enqueue
+        await this.addJob(idStr);
+
+        return research;
+    }
+
+    /**
+     * Retry a failed research job
+     * @param {string} researchId
+     */
+    async retryJob(researchId) {
+        const idStr = researchId.toString();
+
+        if (mongoose.connection.readyState !== 1) return null;
+
+        const research = await stateMachine.retry(idStr);
+
+        // Add back to processing queue
         await this.addJob(idStr);
 
         return research;

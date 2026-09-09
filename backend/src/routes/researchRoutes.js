@@ -7,7 +7,8 @@ const {
     updateResearch,
     deleteResearch,
     cancelResearch,
-    resumeResearch
+    resumeResearch,
+    retryResearch
 } = require("../controllers/researchController");
 const { protect } = require("../middleware/authMiddleware");
 const { checkOwnership } = require("../middleware/authorize");
@@ -28,5 +29,6 @@ router.delete("/:id", checkOwnership(Research, "id"), deleteResearch);
 // Background Job Controls
 router.post("/:id/cancel", checkOwnership(Research, "id"), cancelResearch);
 router.post("/:id/resume", checkOwnership(Research, "id"), resumeResearch);
+router.post("/:id/retry", checkOwnership(Research, "id"), retryResearch);
 
 module.exports = router;

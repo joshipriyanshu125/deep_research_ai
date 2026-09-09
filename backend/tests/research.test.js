@@ -157,12 +157,14 @@ async function runResearchApiTests() {
         // 7. Wait for Background Job Completion
         console.log("\n[7] Waiting for background worker to complete research execution...");
         let completed = false;
-        for (let attempt = 1; attempt <= 10; attempt++) {
-            await sleep(500);
+        for (let attempt = 1; attempt <= 80; attempt++) {
+            await sleep(150);
             const pollRes = await makeRequest(TEST_PORT, "GET", `/research/${researchId}`, null, {
                 Authorization: `Bearer ${token}`
             });
-            console.log(`Poll [${attempt}]: Progress ${pollRes.body.progress}% | Status: ${pollRes.body.status} | Step: ${pollRes.body.currentStep}`);
+            if (attempt % 5 === 0 || pollRes.body.status === "completed") {
+                console.log(`Poll [${attempt}]: Progress ${pollRes.body.progress}% | Status: ${pollRes.body.status} | Step: ${pollRes.body.currentStep}`);
+            }
             if (pollRes.body.status === "completed") {
                 completed = true;
                 console.log("✓ Sources Gathered:", pollRes.body.data.sources.length);

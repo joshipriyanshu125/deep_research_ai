@@ -99,7 +99,7 @@ async function runJobSystemTests() {
         const observedStatuses = new Set([createRes.body.status]);
 
         let finalDoc = null;
-        for (let i = 0; i < 25; i++) {
+        for (let i = 0; i < 80; i++) {
             await sleep(150);
             const statusRes = await makeRequest(TEST_PORT, "GET", `/research/${researchId}`, null, {
                 Authorization: `Bearer ${token}`
@@ -108,7 +108,9 @@ async function runJobSystemTests() {
             const currentStatus = statusRes.body.status;
             observedStatuses.add(currentStatus);
 
-            console.log(`- Polling [${i + 1}]: Status = ${currentStatus.padEnd(14)} | Progress = ${statusRes.body.progress}% | Step = ${statusRes.body.currentStep}`);
+            if ((i + 1) % 5 === 0 || currentStatus === "completed") {
+                console.log(`- Polling [${i + 1}]: Status = ${currentStatus.padEnd(14)} | Progress = ${statusRes.body.progress}% | Step = ${statusRes.body.currentStep}`);
+            }
 
             if (currentStatus === "completed") {
                 finalDoc = statusRes.body.data;

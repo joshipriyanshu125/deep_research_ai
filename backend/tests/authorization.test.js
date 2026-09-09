@@ -235,10 +235,16 @@ async function runAuthorizationTests() {
         const adminList = await makeRequest(TEST_PORT, "GET", "/research", null, {
             Authorization: `Bearer ${tokenAdmin}`
         });
-        if (adminList.body.count !== 3) {
-            throw new Error("FAIL: Admin should see all 3 research items across all users");
+        // Count must include at least the 3 created in this test run
+        if (adminList.body.count < 3) {
+            throw new Error(`FAIL: Admin should see at least 3 research items (got ${adminList.body.count})`);
         }
-        console.log("✓ Admin sees all research items across all users (Total count: 3)");
+        // Verify our 3 specific test items are present
+        const ids = adminList.body.data.map(r => r._id);
+        if (!ids.includes(researchA_Id) || !ids.includes(researchB_Id) || !ids.includes(researchC_Id)) {
+            throw new Error("FAIL: Admin list is missing one of the 3 test research items");
+        }
+        console.log(`✓ Admin sees all research items including the 3 created in this test run (Total: ${adminList.body.count})`);
 
         // Step 8: Role-Based Access Control (RBAC) on Admin Routes
         console.log("\n[8] Role-Based Access Control on Admin Routes (/admin)...");
