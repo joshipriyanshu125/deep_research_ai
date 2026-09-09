@@ -2,8 +2,9 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "node tests/auth.test.js",
-    "test:auth": "node tests/auth.test.js"
+    "test": "node tests/auth.test.js && node tests/authorization.test.js",
+    "test:auth": "node tests/auth.test.js",
+    "test:rbac": "node tests/authorization.test.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

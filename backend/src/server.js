@@ -3,6 +3,9 @@ require("dotenv").config();
 const express = require("express");
 const connectDB = require("./config/db");
 const authRoutes = require("./routes/authRoutes");
+const researchRoutes = require("./routes/researchRoutes");
+const reportRoutes = require("./routes/reportRoutes");
+const adminRoutes = require("./routes/adminRoutes");
 
 const app = express();
 
@@ -18,13 +21,27 @@ app.get("/", (req, res) => {
     res.json({
         message: "Deep Research AI Backend is running",
         version: "1.0.0",
-        docs: "/auth"
+        endpoints: {
+            auth: "/auth",
+            research: "/research",
+            reports: "/reports",
+            admin: "/admin"
+        }
     });
 });
 
-// Authentication Routes (mounted at both /auth and /api/auth for flexibility)
+// Mount Routes (mounted at both standard and /api/ prefixed paths)
 app.use("/auth", authRoutes);
 app.use("/api/auth", authRoutes);
+
+app.use("/research", researchRoutes);
+app.use("/api/research", researchRoutes);
+
+app.use("/reports", reportRoutes);
+app.use("/api/reports", reportRoutes);
+
+app.use("/admin", adminRoutes);
+app.use("/api/admin", adminRoutes);
 
 // 404 Handler
 app.use((req, res, next) => {
