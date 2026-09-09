@@ -2,14 +2,17 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "node tests/auth.test.js && node tests/authorization.test.js",
+    "test": "node tests/auth.test.js && node tests/authorization.test.js && node tests/research.test.js",
     "test:auth": "node tests/auth.test.js",
-    "test:rbac": "node tests/authorization.test.js"
+    "test:rbac": "node tests/authorization.test.js",
+    "test:research": "node tests/research.test.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
+    "bullmq": "^6.3.4",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "ioredis": "^6.0.0",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.9.5"
   },

@@ -1,50 +1,68 @@
 const Research = require("../models/Research");
 const Report = require("../models/Report");
+const researchQueue = require("../services/researchQueue");
 
 /**
- * @desc    Create new research project
+ * @desc    Create and enqueue a new research job
  * @route   POST /research or POST /api/research
  * @access  Protected
  */
 const createResearch = async (req, res) => {
     try {
-        const { title, query, topic, depth, isPublic } = req.body;
+        const { query, title, topic, depth, isPublic } = req.body;
 
-        if (!title || !query) {
+        if (!query) {
             return res.status(400).json({
                 success: false,
-                message: "Please provide a title and query for the research"
+                message: "Please provide a query for the research"
             });
         }
 
+        const generatedTitle =
+            title ||
+            (query.length > 80 ? query.substring(0, 77) + "..." : query);
+
+        // 1. Create research record with 'queued' status
         const research = await Research.create({
             user: req.user._id,
-            title,
-            query,
+            query: query.trim(),
+            title: generatedTitle,
             topic: topic || "",
             depth: depth || "standard",
             isPublic: !!isPublic,
-            status: "pending"
+            status: "queued",
+            progress: 0,
+            currentStep: "Queued for background processing"
         });
 
+        // 2. Enqueue for background execution (does NOT block the HTTP request)
+        await researchQueue.enqueue(research._id);
+
+        // 3. Respond immediately with status 201
         return res.status(201).json({
             success: true,
-            message: "Research created successfully",
+            message: "Research job queued successfully",
+            research_id: research._id.toString(),
+            id: research._id.toString(),
+            status: research.status,
+            query: research.query,
+            title: research.title,
+            progress: research.progress,
+            currentStep: research.currentStep,
+            createdAt: research.createdAt,
             data: research
         });
     } catch (error) {
         return res.status(500).json({
             success: false,
-            message: "Failed to create research",
+            message: "Failed to create research job",
             error: error.message
         });
     }
 };
 
 /**
- * @desc    Get all research items
- *          - Regular user: returns ONLY their own research items
- *          - Admin: returns all research items (or filters by ?userId=...)
+ * @desc    Get all research items (scoped to logged-in user, or all for admin)
  * @route   GET /research or GET /api/research
  * @access  Protected
  */
@@ -53,12 +71,10 @@ const getAllResearch = async (req, res) => {
         let filter = {};
 
         if (req.user.role === "admin") {
-            // Admin can view all or filter by specific user
             if (req.query.userId) {
                 filter.user = req.query.userId;
             }
         } else {
-            // Regular user: STRICT SCOPING TO OWNED RESOURCES
             filter.user = req.user._id;
         }
 
@@ -87,11 +103,21 @@ const getAllResearch = async (req, res) => {
  */
 const getResearchById = async (req, res) => {
     try {
-        // req.research is already attached and ownership-verified by checkOwnership middleware
-        const research = req.research || (await Research.findById(req.params.id).populate("user", "name email role"));
+        const research =
+            req.research ||
+            (await Research.findById(req.params.id).populate(
+                "user",
+                "name email role"
+            ));
 
         return res.status(200).json({
             success: true,
+            research_id: research._id.toString(),
+            id: research._id.toString(),
+            status: research.status,
+            query: research.query,
+            progress: research.progress,
+            currentStep: research.currentStep,
             data: research
         });
     } catch (error) {
@@ -114,10 +140,7 @@ const updateResearch = async (req, res) => {
             "title",
             "topic",
             "query",
-            "status",
             "depth",
-            "findings",
-            "sources",
             "isPublic"
         ];
         const updates = {};
@@ -131,12 +154,14 @@ const updateResearch = async (req, res) => {
         const updatedResearch = await Research.findByIdAndUpdate(
             req.params.id,
             { $set: updates },
-            { new: true, runValidators: true }
+            { returnDocument: "after", runValidators: true }
         );
 
         return res.status(200).json({
             success: true,
             message: "Research updated successfully",
+            research_id: updatedResearch._id.toString(),
+            id: updatedResearch._id.toString(),
             data: updatedResearch
         });
     } catch (error) {
@@ -149,15 +174,74 @@ const updateResearch = async (req, res) => {
 };
 
 /**
- * @desc    Delete research item and its reports (Resource-level authorization enforced)
- * @route   DELETE /research/:id
+ * @desc    Cancel an ongoing or queued research job
+ * @route   POST /research/:id/cancel or POST /api/research/:id/cancel
+ * @access  Protected (Owner or Admin)
+ */
+const cancelResearch = async (req, res) => {
+    try {
+        const researchId = req.params.id;
+
+        const cancelled = await researchQueue.cancel(researchId);
+
+        return res.status(200).json({
+            success: true,
+            message: "Research job cancelled successfully",
+            research_id: researchId,
+            id: researchId,
+            status: "cancelled",
+            data: cancelled
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: "Failed to cancel research job",
+            error: error.message
+        });
+    }
+};
+
+/**
+ * @desc    Resume a cancelled, paused, or failed research job
+ * @route   POST /research/:id/resume or POST /api/research/:id/resume
+ * @access  Protected (Owner or Admin)
+ */
+const resumeResearch = async (req, res) => {
+    try {
+        const researchId = req.params.id;
+
+        const resumed = await researchQueue.resume(researchId);
+
+        return res.status(200).json({
+            success: true,
+            message: "Research job resumed and queued for processing",
+            research_id: researchId,
+            id: researchId,
+            status: resumed.status,
+            data: resumed
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: "Failed to resume research job",
+            error: error.message
+        });
+    }
+};
+
+/**
+ * @desc    Delete research item and associated reports
+ * @route   DELETE /research/:id or DELETE /api/research/:id
  * @access  Protected (Owner or Admin)
  */
 const deleteResearch = async (req, res) => {
     try {
         const researchId = req.params.id;
 
-        // Delete research
+        // Cancel background job if running
+        await researchQueue.cancel(researchId);
+
+        // Delete research document
         await Research.findByIdAndDelete(researchId);
 
         // Delete associated reports
@@ -181,5 +265,7 @@ module.exports = {
     getAllResearch,
     getResearchById,
     updateResearch,
+    cancelResearch,
+    resumeResearch,
     deleteResearch
 };
