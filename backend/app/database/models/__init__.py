@@ -3,10 +3,18 @@ from app.database.models.source import Source, SourceType
 from app.database.models.evidence import Evidence
 from app.database.models.research import ResearchJob, ResearchRequest, ResearchTask, ResearchStatus
 from app.database.models.report import ResearchReport, ReportSection, Citation
+from app.database.models.task import (
+    ResearchTaskRecord, TaskStatus, TaskType,
+    TaskCreateRequest, TaskUpdateRequest, TaskStatusTransitionRequest,
+    TaskBulkCreateRequest, TaskStatsResponse,
+)
 
 __all__ = [
     "UserBase", "UserCreate", "UserInDB", "UserResponse", "UserRole",
     "Source", "SourceType", "Evidence",
     "ResearchJob", "ResearchRequest", "ResearchTask", "ResearchStatus",
-    "ResearchReport", "ReportSection", "Citation"
+    "ResearchReport", "ReportSection", "Citation",
+    "ResearchTaskRecord", "TaskStatus", "TaskType",
+    "TaskCreateRequest", "TaskUpdateRequest", "TaskStatusTransitionRequest",
+    "TaskBulkCreateRequest", "TaskStatsResponse",
 ]
