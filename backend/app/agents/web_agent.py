@@ -161,7 +161,11 @@ class DeepWebResearchAgent:
             )
             sources.append(source)
 
-        logger.info(f"DeepWebResearchAgent completed with {len(sources)} sources built.")
+        # 8. Score credibility across all 6 dimensions with cross-source agreement
+        from app.research.credibility import source_credibility_scorer
+        sources = source_credibility_scorer.evaluate_batch(sources, question=query)
+
+        logger.info(f"DeepWebResearchAgent completed with {len(sources)} sources built and scored.")
         return sources
 
     async def _search_single_query(self, query: str, is_market: bool) -> List[Dict[str, Any]]:
