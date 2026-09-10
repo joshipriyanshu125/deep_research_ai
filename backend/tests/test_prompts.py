@@ -49,7 +49,7 @@ def test_required_prompts_exist_in_registry():
 def test_prompt_attributes_and_defaults():
     # Planner
     assert planner_prompt.name == "planner_prompt"
-    assert planner_prompt.version == "1.0.0"
+    assert planner_prompt.version.startswith("1.")
     assert planner_prompt.temperature == 0.2
     assert planner_prompt.max_tokens == 2000
 

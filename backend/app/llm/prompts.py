@@ -76,21 +76,30 @@ class PromptConfig:
 # 1. Planner Prompt
 planner_prompt = PromptConfig(
     name="planner_prompt",
-    version="1.0.0",
-    description="Decomposes research topics into structured, multi-track search tasks.",
+    version="1.1.0",
+    description="Decomposes research topics into structured research goals and sub-questions.",
     model=None,
     temperature=0.2,
     max_tokens=2000,
     system_prompt="""You are a Principal Research Director and Systems Thinker.
-Your role is to decompose complex research questions into atomic, high-impact investigation tracks.
+Your role is to analyze research objectives and decompose complex research questions into structured, atomic investigation tracks.
 Categorize tasks into 'web' (current web news/articles), 'academic' (peer-reviewed scientific literature), and 'market' (industry stats/commercial data).
-Respond strictly in JSON format as an array of objects:
-[
-  {"query": "specific search query", "category": "web" | "academic" | "market"}
-]""",
-    user_template="""Generate a research task decomposition for query: '{query}'.
+
+Respond strictly in valid JSON format using the following schema:
+{
+  "research_goal": "Concise summary of research objective",
+  "tasks": [
+    {
+      "id": "task_1",
+      "question": "Specific investigative question",
+      "query": "Targeted search query",
+      "category": "web" | "academic" | "market"
+    }
+  ]
+}""",
+    user_template="""Decompose and plan research for query: '{query}'.
 Depth level: {depth}. Number of sub-tasks: {breadth}.
-Return JSON array with objects containing 'query' and 'category' ('web', 'academic', or 'market').""",
+Return structured JSON containing 'research_goal' and an array of 'tasks' with id, question, query, and category ('web', 'academic', or 'market').""",
     metadata={"agent": "PlannerAgent", "task": "decomposition"},
 )
 PLANNER_PROMPT = planner_prompt

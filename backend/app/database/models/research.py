@@ -18,10 +18,19 @@ class ResearchStatus:
 class ResearchTask(BaseModel):
     id: str = Field(default_factory=generate_uuid)
     query: str
+    question: Optional[str] = None
     category: str = "web"  # web, academic, market
     status: str = "pending"  # pending, in_progress, completed, failed
     depth: int = 1
     results_count: int = 0
+
+
+class ResearchPlan(BaseModel):
+    research_goal: str
+    tasks: List[ResearchTask] = Field(default_factory=list)
+    depth: int = 2
+    breadth: int = 3
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ResearchRequest(BaseModel):
