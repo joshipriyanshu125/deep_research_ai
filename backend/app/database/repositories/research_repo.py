@@ -50,11 +50,32 @@ class ResearchRepository:
             self._sources[source.id] = source
         return source
 
-    async def get_sources_by_research(self, research_id: str) -> List[Source]:
+    async def get_sources_by_research(
+        self,
+        research_id: str,
+        domain: Optional[str] = None,
+        source_type: Optional[str] = None,
+        min_relevance: Optional[float] = None,
+    ) -> List[Source]:
         if db_manager.is_connected:
-            cursor = db_manager.db.sources.find({"research_id": research_id})
+            query: Dict[str, Any] = {"research_id": research_id}
+            if domain:
+                query["domain"] = domain.lower().strip()
+            if source_type:
+                query["source_type"] = source_type
+            if min_relevance is not None:
+                query["relevance_score"] = {"$gte": min_relevance}
+            cursor = db_manager.db.sources.find(query)
             return [Source(**doc) async for doc in cursor]
-        return [s for s in self._sources.values() if s.research_id == research_id]
+        
+        results = [s for s in self._sources.values() if s.research_id == research_id]
+        if domain:
+            results = [s for s in results if s.domain.lower() == domain.lower().strip()]
+        if source_type:
+            results = [s for s in results if s.source_type == source_type]
+        if min_relevance is not None:
+            results = [s for s in results if s.relevance_score >= min_relevance]
+        return results
 
     async def add_evidence(self, evidence: Evidence) -> Evidence:
         if db_manager.is_connected:

@@ -1,5 +1,5 @@
 """
-Day 12 — Web Search Agent (Multi-Query Research Layer)
+Day 12 & 13 — Web Search Agent & Result Processing
 
 Upgraded Web Research Agent implementing the full research loop:
   Research Question
@@ -14,7 +14,7 @@ Upgraded Web Research Agent implementing the full research loop:
         ↓
   Open useful pages (top-K parallel extraction)
         ↓
-  Extract information & return enriched Sources
+  Extract information & Process structured Search Results & Sources
 """
 import asyncio
 from typing import List, Dict, Any, Optional
@@ -22,8 +22,9 @@ from app.search.web_search import web_search_engine
 from app.search.news_search import news_search_engine
 from app.search.query_generator import query_generator
 from app.search.result_ranker import result_ranker
+from app.search.result_processor import search_result_processor
 from app.scraping.extractor import content_extractor
-from app.database.models.source import Source, SourceType
+from app.database.models.source import Source, SourceType, ProcessedSearchResult
 from app.utils.logger import logger
 
 
@@ -31,7 +32,7 @@ class DeepWebResearchAgent:
     """
     Multi-query web research agent that expands research questions into
     diverse sub-queries, executes parallel searches, ranks results by relevance,
-    and extracts full content from top candidate pages.
+    and extracts full content from top candidate pages with structured processing.
     """
 
     def __init__(self, max_concurrency: int = 4):
@@ -60,6 +61,7 @@ class DeepWebResearchAgent:
         if category is None:
             category = "market" if is_market else "web"
 
+        default_source_type = SourceType.COMPANY if is_market else SourceType.WEB
         logger.info(f"DeepWebResearchAgent starting research for query: '{query}' (is_market={is_market})")
 
         # 1. Generate multi-angle search queries
@@ -94,7 +96,9 @@ class DeepWebResearchAgent:
                     continue
                 seen_urls.add(url)
                 item_copy = dict(item)
+                item_copy["query"] = q
                 item_copy["query_used"] = q
+                item_copy["source_type"] = item_copy.get("source_type") or default_source_type
                 deduped_results.append(item_copy)
 
         logger.info(f"Collected {len(deduped_results)} unique search results across all queries.")
@@ -117,7 +121,7 @@ class DeepWebResearchAgent:
         ]
         extractions = await asyncio.gather(*scrape_tasks, return_exceptions=True)
 
-        # 7. Build enriched Source objects
+        # 7. Standardize and Build enriched Source objects using SearchResultProcessor
         sources: List[Source] = []
         for idx, (candidate, ext) in enumerate(zip(top_candidates, extractions)):
             if isinstance(ext, Exception):
@@ -126,25 +130,31 @@ class DeepWebResearchAgent:
             else:
                 ext_data = ext or {}
 
-            url = candidate.get("url", "")
-            title = ext_data.get("title") or candidate.get("title") or "Untitled Document"
-            text_content = ext_data.get("text") or candidate.get("snippet") or ""
-            author = ext_data.get("author")
-            pub_date = ext_data.get("date")
-
-            source = Source(
-                research_id=research_id,
-                url=url,
-                title=title,
-                source_type=SourceType.COMPANY if is_market else SourceType.WEB,
-                snippet=candidate.get("snippet", ""),
-                raw_content=text_content[:4000],
-                clean_text=text_content[:4000],
-                author=author,
-                published_date=pub_date,
+            # Process standardized search result
+            processed_item: ProcessedSearchResult = search_result_processor.process_result(
+                raw_result=candidate,
+                query=candidate.get("query_used", query),
+                default_source_type=default_source_type,
                 relevance_score=candidate.get("relevance_score", 0.8),
-                metadata={
-                    "query_used": candidate.get("query_used", query),
+            )
+
+            # Override title and date if better info was extracted
+            if ext_data.get("title"):
+                processed_item.title = ext_data["title"]
+            if ext_data.get("date") and not processed_item.publication_date:
+                processed_item.publication_date = ext_data["date"]
+
+            text_content = ext_data.get("text") or processed_item.snippet or ""
+            author = ext_data.get("author")
+
+            source = search_result_processor.to_source(
+                processed=processed_item,
+                research_id=research_id,
+                clean_text=text_content,
+                raw_content=text_content,
+                author=author,
+                credibility_score=0.8,
+                additional_metadata={
                     "rank": idx + 1,
                     "word_count": len(text_content.split()),
                 },
