@@ -12,6 +12,7 @@ import trafilatura
 from app.scraping.scraper import web_scraper, FetchResponse
 from app.scraping.cleaner import html_cleaner
 from app.scraping.pdf_extractor import pdf_extractor
+from app.scraping.text_normalizer import text_normalizer
 from app.utils.logger import logger
 
 _PAYWALL_PATTERNS = re.compile(
@@ -125,28 +126,29 @@ class ContentExtractor:
         is_paywall = bool(_PAYWALL_PATTERNS.search(html[:10000]))
         is_js_required = bool(_JS_ONLY_PATTERNS.search(html[:3000]))
 
-        # 3. Extract main article text with Trafilatura (handles tables and clean article body)
-        extracted_text = ""
-        try:
-            extracted_text = trafilatura.extract(
-                html,
-                include_comments=False,
-                include_tables=True,
-                include_formatting=True,
-                no_fallback=False,
-            ) or ""
-        except Exception as te:
-            logger.debug(f"Trafilatura extraction warning for {url}: {te}")
+        # 3. Clean HTML with HTMLCleaner (strips cookies, ads, comments, footers, isolates main article)
+        extracted_text = html_cleaner.clean(html)
 
-        # 4. Fallback to structure-preserving HTMLCleaner (Markdown headings, tables, lists)
+        # 4. If extracted_text is short or empty, try Trafilatura
         if not extracted_text or len(extracted_text.strip()) < 50:
-            extracted_text = html_cleaner.clean(html)
+            try:
+                traf_text = trafilatura.extract(
+                    html,
+                    include_comments=False,
+                    include_tables=True,
+                    include_formatting=True,
+                    no_fallback=False,
+                )
+                if traf_text:
+                    extracted_text = traf_text
+            except Exception as te:
+                logger.debug(f"Trafilatura extraction warning for {url}: {te}")
 
         # 5. Fallback to OpenGraph / Meta description if text is still minimal
         if not extracted_text.strip() and meta.get("description"):
             extracted_text = meta["description"]
 
-        clean_text = extracted_text.strip()
+        clean_text = text_normalizer.normalize(extracted_text)
         success = bool(clean_text)
 
         title = meta.get("title") or ""
