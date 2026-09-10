@@ -44,11 +44,8 @@ class ResearchRepository:
         return jobs[:limit]
 
     async def add_source(self, source: Source) -> Source:
-        if db_manager.is_connected:
-            await db_manager.db.sources.insert_one(source.model_dump())
-        else:
-            self._sources[source.id] = source
-        return source
+        from app.database.repositories.source_repo import source_repo
+        return await source_repo.create_source(source)
 
     async def get_sources_by_research(
         self,
@@ -57,25 +54,13 @@ class ResearchRepository:
         source_type: Optional[str] = None,
         min_relevance: Optional[float] = None,
     ) -> List[Source]:
-        if db_manager.is_connected:
-            query: Dict[str, Any] = {"research_id": research_id}
-            if domain:
-                query["domain"] = domain.lower().strip()
-            if source_type:
-                query["source_type"] = source_type
-            if min_relevance is not None:
-                query["relevance_score"] = {"$gte": min_relevance}
-            cursor = db_manager.db.sources.find(query)
-            return [Source(**doc) async for doc in cursor]
-        
-        results = [s for s in self._sources.values() if s.research_id == research_id]
-        if domain:
-            results = [s for s in results if s.domain.lower() == domain.lower().strip()]
-        if source_type:
-            results = [s for s in results if s.source_type == source_type]
-        if min_relevance is not None:
-            results = [s for s in results if s.relevance_score >= min_relevance]
-        return results
+        from app.database.repositories.source_repo import source_repo
+        return await source_repo.get_sources_by_research(
+            research_id=research_id,
+            domain=domain,
+            source_type=source_type,
+            min_relevance=min_relevance,
+        )
 
     async def add_evidence(self, evidence: Evidence) -> Evidence:
         if db_manager.is_connected:
