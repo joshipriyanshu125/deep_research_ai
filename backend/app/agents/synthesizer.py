@@ -1,6 +1,6 @@
 from typing import List, Dict, Any
 from app.llm.service import LLMService, get_llm_service
-from app.llm.prompts import SYNTHESIZER_SYSTEM_PROMPT
+from app.llm.prompts import report_prompt, SYNTHESIZER_SYSTEM_PROMPT
 from app.database.models.source import Source
 from app.database.models.evidence import Evidence
 from app.database.models.report import ResearchReport, ReportSection, Citation
@@ -18,15 +18,11 @@ class SynthesizerAgent:
         citations: List[Citation]
     ) -> ResearchReport:
         evidence_summary = "\n".join([f"[{i+1}] {e.claim} (Source: {e.quote[:100]}...)" for i, e in enumerate(evidence[:15])])
-        prompt = (
-            f"Research Subject: {query}\n\n"
-            f"Verified Evidence Pool:\n{evidence_summary}\n\n"
-            "Synthesize an exhaustive, publication-grade research report in Markdown. "
-            "Include executive summary, comprehensive technical analysis with inline citations [1], [2], "
-            "quantitative comparative breakdown, risks, and strategic horizon."
-        )
 
-        markdown_body = await self.llm.generate(prompt, system_prompt=SYNTHESIZER_SYSTEM_PROMPT, max_tokens=4000)
+        markdown_body = await self.llm.execute_prompt(
+            report_prompt,
+            variables={"query": query, "evidence_summary": evidence_summary},
+        )
         
         # Build structured sections
         sections = [

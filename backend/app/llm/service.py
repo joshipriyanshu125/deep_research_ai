@@ -95,6 +95,48 @@ class LLMService:
             max_tokens=max_tokens,
         )
 
+    async def execute_prompt(
+        self,
+        prompt: Union[Any, str],
+        variables: Optional[Dict[str, Any]] = None,
+        *,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        model: Optional[str] = None,
+        is_json: bool = False,
+    ) -> str:
+        """Execute a centralized prompt configuration with versioning, parameters, and telemetry."""
+        from app.llm.prompts import PromptConfig, get_prompt
+
+        if isinstance(prompt, str):
+            config = get_prompt(prompt)
+        elif isinstance(prompt, PromptConfig):
+            config = prompt
+        else:
+            raise TypeError("prompt must be a PromptConfig instance or registered prompt name string")
+
+        vars_dict = variables or {}
+        user_prompt = config.format_user_prompt(**vars_dict)
+        system_prompt = config.system_prompt
+        effective_temp = temperature if temperature is not None else config.temperature
+        effective_max_tokens = max_tokens if max_tokens is not None else config.max_tokens
+        effective_model = model or config.model or settings.DEFAULT_MODEL
+
+        logger.debug(
+            f"[LLM Operation] Prompt: '{config.name}' (v{config.version}) | "
+            f"Model: {effective_model} | Temp: {effective_temp} | MaxTokens: {effective_max_tokens}"
+        )
+
+        if is_json:
+            return await self.generate_json(user_prompt, system_prompt=system_prompt)
+        else:
+            return await self.generate(
+                user_prompt,
+                system_prompt=system_prompt,
+                temperature=effective_temp,
+                max_tokens=effective_max_tokens,
+            )
+
     async def summarize(
         self,
         text: str,
@@ -120,15 +162,17 @@ class LLMService:
         }
         instruction = style_map.get(style, style_map["concise"])
 
-        prompt = (
-            f"{instruction} Summarize the following text{length_hint}:\n\n"
-            f"{text}"
+        from app.llm.prompts import summarization_prompt
+        user_prompt = summarization_prompt.format_user_prompt(
+            instruction=instruction,
+            length_hint=length_hint,
+            text=text,
         )
-        default_system = "You are an expert summarisation assistant. Preserve all key facts and nuance."
         return await self.generate(
-            prompt,
-            system_prompt=system_prompt or default_system,
-            temperature=0.3,
+            user_prompt,
+            system_prompt=system_prompt or summarization_prompt.system_prompt,
+            temperature=summarization_prompt.temperature,
+            max_tokens=summarization_prompt.max_tokens,
         )
 
     async def extract(

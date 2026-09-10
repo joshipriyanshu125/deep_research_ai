@@ -1,6 +1,6 @@
 from typing import List, Dict, Any
 from app.llm.service import LLMService, get_llm_service
-from app.llm.prompts import ANALYST_PROMPT
+from app.llm.prompts import analyst_prompt, ANALYST_PROMPT
 from app.database.models.evidence import Evidence
 
 
@@ -10,9 +10,10 @@ class AnalystAgent:
 
     async def analyze_findings(self, evidence_items: List[Evidence]) -> Dict[str, Any]:
         claims_text = "\n".join([f"- {e.claim}" for e in evidence_items[:10]])
-        prompt = f"Analyze these empirical claims and synthesize 3-5 core takeaways:\n{claims_text}"
-        
-        analysis = await self.llm.generate(prompt, system_prompt=ANALYST_PROMPT)
+        analysis = await self.llm.execute_prompt(
+            analyst_prompt,
+            variables={"claims_text": claims_text},
+        )
         return {
             "synthesis": analysis,
             "key_patterns": [

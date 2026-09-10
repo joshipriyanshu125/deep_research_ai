@@ -1,7 +1,7 @@
 import json
 from typing import List
 from app.llm.service import LLMService, get_llm_service
-from app.llm.prompts import PLANNER_SYSTEM_PROMPT
+from app.llm.prompts import planner_prompt, PLANNER_SYSTEM_PROMPT
 from app.database.models.research import ResearchTask
 from app.utils.logger import logger
 
@@ -11,14 +11,12 @@ class PlannerAgent:
         self.llm = get_llm_service()
 
     async def plan_research_tasks(self, query: str, depth: int = 2, breadth: int = 3) -> List[ResearchTask]:
-        prompt = (
-            f"Generate a research task decomposition for query: '{query}'.\n"
-            f"Depth level: {depth}. Number of sub-tasks: {breadth}.\n"
-            "Return JSON array with objects containing 'query' and 'category' ('web', 'academic', or 'market')."
-        )
-        
         try:
-            raw_json = await self.llm.generate_json(prompt, system_prompt=PLANNER_SYSTEM_PROMPT)
+            raw_json = await self.llm.execute_prompt(
+                planner_prompt,
+                variables={"query": query, "depth": depth, "breadth": breadth},
+                is_json=True,
+            )
             parsed = json.loads(raw_json)
             tasks = []
             for item in parsed:

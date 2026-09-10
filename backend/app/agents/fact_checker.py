@@ -1,6 +1,6 @@
 from typing import List
 from app.llm.service import LLMService, get_llm_service
-from app.llm.prompts import FACT_CHECKER_SYSTEM_PROMPT
+from app.llm.prompts import fact_check_prompt, FACT_CHECKER_SYSTEM_PROMPT
 from app.database.models.evidence import Evidence
 
 
