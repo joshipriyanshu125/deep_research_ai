@@ -32,22 +32,35 @@ class ResearchOrchestrator:
         await research_repo.update_job(job)
         yield {"event": "plan_ready", "data": {"tasks": [t.model_dump() for t in tasks]}}
 
-        # 2. Execution Phase (Search, Scrape, Extract across Web, Academic, Market)
+        # 2. Execution Phase (Search, Scrape, Extract across Web, Academic, Market in parallel)
         job.status = ResearchStatus.SEARCHING
         job.progress_percentage = 40
-        job.current_step = "Executing parallel search & deep document scraping..."
+        job.current_step = f"Executing {len(tasks)} parallel exploration vectors across Web, Papers, and Market..."
         await research_repo.update_job(job)
         yield {"event": "status", "data": job.model_dump(mode="json")}
 
-        sources = await research_executor.execute_tasks(tasks, job.id)
-        for s in sources:
-            await research_repo.add_source(s)
-            job.source_ids.append(s.id)
+        async def _on_task_finished(task_obj: ResearchTask, task_sources: List[Source]):
+            for s in task_sources:
+                await research_repo.add_source(s)
+                job.source_ids.append(s.id)
+
+        sources = await research_executor.execute_tasks(
+            tasks=tasks,
+            research_id=job.id,
+            on_task_complete=_on_task_finished,
+        )
 
         job.progress_percentage = 60
-        job.current_step = f"Retrieved and validated {len(sources)} authoritative sources."
+        job.current_step = f"Retrieved and validated {len(sources)} authoritative sources across parallel tracks."
         await research_repo.update_job(job)
-        yield {"event": "sources_collected", "data": {"sources": [s.model_dump(mode="json") for s in sources]}}
+        yield {
+            "event": "sources_collected",
+            "data": {
+                "sources": [s.model_dump(mode="json") for s in sources],
+                "execution_stats": research_executor.last_execution_stats,
+            }
+        }
+
 
         # 3. Knowledge / RAG Indexing & Evidence Extraction
         job.status = ResearchStatus.EXTRACTING

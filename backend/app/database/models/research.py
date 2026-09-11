@@ -23,6 +23,12 @@ class ResearchTask(BaseModel):
     status: str = "pending"  # pending, in_progress, completed, failed
     depth: int = 1
     results_count: int = 0
+    duration_ms: Optional[float] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    error_message: Optional[str] = None
+    source_urls: List[str] = Field(default_factory=list)
+
 
 
 class ResearchPlan(BaseModel):
