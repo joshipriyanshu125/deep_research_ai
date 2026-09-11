@@ -1,14 +1,21 @@
 """
-RAG Retriever — updated for Day 23 Semantic Chunking.
+RAG Retriever — updated for Day 24 Embeddings & Day 23 Semantic Chunking.
 
-index_sources now uses SemanticChunker so every chunk carries:
-  document_id, chunk_id, text, page, section, metadata
+index_sources now uses SemanticChunker + VectorStore batch insert:
+  Document
+    ↓
+  Sections (SemanticChunker)
+    ↓
+  Chunks (carrying page, section, doc_id, metadata)
+    ↓
+  Batch Embeddings (1 API call)
+    ↓
+  Vector Store (768-dim normalized vectors)
 
-Backward-compatible: existing callers pass the same source dicts;
-the richer chunks are transparently stored in the vector store.
+Backward-compatible: existing callers pass the same source dicts.
 """
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from app.rag.vector_store import vector_store
 from app.rag.chunker import semantic_chunker, text_chunker
 
@@ -16,7 +23,7 @@ from app.rag.chunker import semantic_chunker, text_chunker
 class RAGRetriever:
     async def index_sources(self, sources: List[Dict[str, Any]]) -> int:
         """
-        Index a list of source dicts using the semantic chunker.
+        Index a list of source dicts using the semantic chunker and batch embedding.
 
         Supports:
           - Plain-text sources (web / news / company)
@@ -47,7 +54,7 @@ class RAGRetriever:
                 all_rag_docs.append(chunk.to_rag_document())
 
         if all_rag_docs:
-            await vector_store.add_documents(all_rag_docs)
+            await vector_store.add_documents_batch(all_rag_docs)
 
         return len(all_rag_docs)
 
@@ -55,12 +62,19 @@ class RAGRetriever:
         self,
         sub_query: str,
         top_k: int = 4,
+        filter_by: Optional[Dict[str, Any]] = None,
+        min_score: float = 0.0,
     ) -> List[Dict[str, Any]]:
         """
         Retrieve the most relevant chunks for a sub-query.
-        Returns list of dicts: {content, metadata, score, page, section, chunk_id}.
+        Returns list of dicts: {content, metadata, score, page, section, chunk_id, document_id}.
         """
-        results = await vector_store.search(sub_query, top_k=top_k)
+        results = await vector_store.search(
+            sub_query,
+            top_k=top_k,
+            filter_by=filter_by,
+            min_score=min_score,
+        )
         return [
             {
                 "content": item[0].get("content", ""),
@@ -74,6 +88,19 @@ class RAGRetriever:
             }
             for item in results
         ]
+
+    async def retrieve_by_section(
+        self,
+        sub_query: str,
+        section: str,
+        top_k: int = 4,
+    ) -> List[Dict[str, Any]]:
+        """Retrieve chunks only from a specific section (e.g. 'Results' or 'Abstract')."""
+        return await self.retrieve_relevant_context(
+            sub_query,
+            top_k=top_k,
+            filter_by={"section": section},
+        )
 
 
 rag_retriever = RAGRetriever()

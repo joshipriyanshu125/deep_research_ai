@@ -407,13 +407,13 @@ class SemanticChunker:
     # ------------------------------------------------------------------
 
     _HEADING_PATTERN = re.compile(
-        r"^(?:\d+[\.\s]+)?"
+        r"^(?:#{1,6}\s+|(?:\d+[\.\s]+))?"
         r"(abstract|introduction|background|related\s+work|literature\s+review|"
         r"methods?|methodology|approach|experimental(?:\s+setup)?|experiments?|"
         r"results?|findings?|discussion|analysis|evaluation|"
         r"conclusion(?:s)?|future\s+work|references?|bibliography|"
         r"acknowledgments?|appendix)"
-        r"[\s:]*$",
+        r"[\s:#]*$",
         re.IGNORECASE | re.MULTILINE,
     )
 

@@ -547,6 +547,7 @@ class TestRAGRetrieverIntegration:
         from unittest.mock import AsyncMock, patch
         with patch("app.rag.retriever.vector_store") as mock_vs:
             mock_vs.add_documents = AsyncMock()
+            mock_vs.add_documents_batch = AsyncMock()
             count = await retriever.index_sources(sources)
         assert count >= 1
 
@@ -556,6 +557,7 @@ class TestRAGRetrieverIntegration:
         from unittest.mock import AsyncMock, patch
         with patch("app.rag.retriever.vector_store") as mock_vs:
             mock_vs.add_documents = AsyncMock()
+            mock_vs.add_documents_batch = AsyncMock()
             count = await retriever.index_sources([])
         assert count == 0
 
