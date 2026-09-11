@@ -176,7 +176,7 @@ class Source(BaseModel):
             data["retrieved_date"] = ret_date
 
             # 7. Normalize source_type
-            st = data.get("source_type")
+            st = data.get("source_type") or data.get("type")
             if st and str(st).lower() in SourceType.ALL_TYPES:
                 data["source_type"] = str(st).lower()
             elif not st:
@@ -187,6 +187,12 @@ class Source(BaseModel):
     @field_serializer("retrieved_at", "retrieved_date", "created_at")
     def _serialize_dt(self, dt: datetime) -> str:
         return dt.isoformat()
+
+    @property
+    def type(self) -> str:
+        """Backward-compatible property for source_type."""
+        return self.source_type
+
 
 
 # Type alias for clarity

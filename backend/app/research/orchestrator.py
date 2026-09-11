@@ -81,30 +81,54 @@ class ResearchOrchestrator:
                 job.evidence_ids.append(ev.id)
                 all_evidence.append(ev)
 
-        # 4. Fact Verification & Epistemic Audit
+        # 4. Fact Verification & Epistemic Audit (Day 28)
         job.status = ResearchStatus.ANALYZING
         job.progress_percentage = 80
-        job.current_step = "Conducting epistemic cross-examination & fact verification..."
+        job.current_step = "Conducting epistemic cross-examination & fact verification across source claims..."
         await research_repo.update_job(job)
         yield {"event": "status", "data": job.model_dump(mode="json")}
 
-        verified_evidence = await fact_checker_agent.verify_evidence(all_evidence)
+        verified_evidence = await fact_checker_agent.verify_evidence(all_evidence, sources=sources)
+        fact_check_results = await fact_checker_agent.fact_check_batch(
+            claims=verified_evidence,
+            evidence_pool=all_evidence,
+            sources=sources,
+        )
+        yield {
+            "event": "fact_checks_ready",
+            "data": {
+                "fact_checks": [fc.to_dict() for fc in fact_check_results],
+                "verified_count": len([fc for fc in fact_check_results if fc.supported]),
+            }
+        }
+
         analysis_result = await analyst_agent.analyze_findings(verified_evidence)
         yield {"event": "analysis_ready", "data": analysis_result}
 
-        # 5. Citation Generation & Synthesis
+        # 5. Citation Generation & Multi-Dimensional Synthesis (Day 27)
         job.status = ResearchStatus.SYNTHESIZING
         job.progress_percentage = 90
-        job.current_step = "Synthesizing multi-section publication report with inline citation anchors..."
+        job.current_step = "Synthesizing multi-section publication report across all findings, trends, and risks..."
         await research_repo.update_job(job)
         yield {"event": "status", "data": job.model_dump(mode="json")}
 
-        citations = citation_engine.build_citations(sources)
+        citations = citation_engine.build_citations(sources, verified_evidence)
+        previous_context = {
+            "query": job.query,
+            "depth": job.depth,
+            "breadth": job.breadth,
+            "categories": job.categories,
+            "task_count": len(tasks),
+        }
+
         report: ResearchReport = await synthesizer_agent.synthesize_report(
             query=job.query,
             sources=sources,
             evidence=verified_evidence,
-            citations=citations
+            citations=citations,
+            task_results=tasks,
+            previous_context=previous_context,
+            fact_checks=fact_check_results,
         )
         report.research_id = job.id
         await report_repo.create(report)

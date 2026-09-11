@@ -9,7 +9,7 @@ from app.database.models.source import (
 )
 from app.database.models.evidence import Evidence
 from app.database.models.research import ResearchJob, ResearchRequest, ResearchTask, ResearchStatus
-from app.database.models.report import ResearchReport, ReportSection, Citation
+from app.database.models.report import ResearchReport, ReportSection, Citation, CitationTrace, FactCheckResult
 from app.database.models.task import (
     ResearchTaskRecord, TaskStatus, TaskType,
     TaskCreateRequest, TaskUpdateRequest, TaskStatusTransitionRequest,
@@ -21,7 +21,7 @@ __all__ = [
     "Source", "ResearchSource", "SourceType", "ProcessedSearchResult",
     "extract_domain_from_url", "compute_content_hash", "Evidence",
     "ResearchJob", "ResearchRequest", "ResearchTask", "ResearchStatus",
-    "ResearchReport", "ReportSection", "Citation",
+    "ResearchReport", "ReportSection", "Citation", "CitationTrace", "FactCheckResult",
     "ResearchTaskRecord", "TaskStatus", "TaskType",
     "TaskCreateRequest", "TaskUpdateRequest", "TaskStatusTransitionRequest",
     "TaskBulkCreateRequest", "TaskStatsResponse",

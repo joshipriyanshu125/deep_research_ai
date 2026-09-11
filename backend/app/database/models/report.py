@@ -63,6 +63,34 @@ class CitationTrace(BaseModel):
     confidence: float = 0.90
 
 
+class FactCheckResult(BaseModel):
+    """
+    Day 28 — Claim Fact Check Verification Record
+    Audits an atomic claim by retrieving supporting evidence, cross-comparing sources,
+    checking contradictions, and computing a calibrated confidence score.
+    """
+    claim: str
+    supported: bool = True
+    confidence: float = Field(default=0.90, ge=0.0, le=1.0)
+    sources: List[str] = Field(default_factory=list)
+    contradictions: List[str] = Field(default_factory=list)
+    supporting_evidence: List[str] = Field(default_factory=list)
+    reasoning: Optional[str] = None
+    verification_status: str = "verified"  # verified, questionable, refuted, unverified
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "claim": self.claim,
+            "supported": self.supported,
+            "confidence": round(self.confidence, 4),
+            "sources": self.sources,
+            "contradictions": self.contradictions,
+            "supporting_evidence": self.supporting_evidence,
+            "reasoning": self.reasoning,
+        }
+
+
 class ReportSection(BaseModel):
     title: str
     content: str
@@ -79,10 +107,18 @@ class ResearchReport(BaseModel):
     citations: List[Citation] = Field(default_factory=list)
     traceability_matrix: List[CitationTrace] = Field(default_factory=list)
     key_findings: List[str] = Field(default_factory=list)
+    market_analysis: Optional[str] = None
+    trends: List[str] = Field(default_factory=list)
+    opportunities: List[str] = Field(default_factory=list)
+    risks: List[str] = Field(default_factory=list)
+    contradictions: List[str] = Field(default_factory=list)
+    uncertainty: List[str] = Field(default_factory=list)
+    fact_checks: List[FactCheckResult] = Field(default_factory=list)
     quality_score: float = 9.5
     created_at: datetime = Field(default_factory=get_utc_now)
 
     @field_serializer("created_at")
     def _serialize_dt(self, dt: datetime) -> str:
         return dt.isoformat()
+
 

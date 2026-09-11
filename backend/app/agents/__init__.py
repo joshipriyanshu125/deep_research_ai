@@ -5,7 +5,7 @@ Agents package providing planner, analyst, fact-checker, synthesizer, web agent,
 from app.agents.planner import PlannerAgent, planner_agent
 from app.agents.analyst import AnalystAgent, analyst_agent
 from app.agents.fact_checker import FactCheckerAgent, fact_checker_agent
-from app.agents.synthesizer import SynthesizerAgent, synthesizer_agent
+from app.agents.synthesizer import SynthesizerAgent, synthesizer_agent, SynthesisResult
 from app.agents.web_agent import (
     WebAgent,
     web_agent,
@@ -26,6 +26,7 @@ __all__ = [
     "fact_checker_agent",
     "SynthesizerAgent",
     "synthesizer_agent",
+    "SynthesisResult",
     "WebAgent",
     "web_agent",
     "DeepWebResearchAgent",

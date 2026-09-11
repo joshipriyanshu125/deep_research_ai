@@ -164,23 +164,39 @@ Preserve all key facts, numerical figures, and technical nuance without adding u
 SUMMARIZATION_PROMPT = summarization_prompt
 
 
-# 5. Fact Check Prompt
+# 5. Fact Check Prompt (Day 28)
 fact_check_prompt = PromptConfig(
     name="fact_check_prompt",
-    version="1.0.0",
-    description="Audits claims and extracts against source context to eliminate hallucinations.",
+    version="2.0.0",
+    description="Audits claims by comparing sources, checking contradictions, and calculating confidence.",
     model=None,
     temperature=0.1,
     max_tokens=1500,
-    system_prompt="""You are a Strict Fact Verification and Epistemic Audit Agent.
-Analyze the following extracted claims and source texts.
-Identify any factual inconsistencies, unsupported claims, or outdated statistics.
-Return a confidence score between 0.0 and 1.0 along with verified evidence statements.""",
-    user_template="""Verify the following extracted evidence against source context:
-Evidence Claim: {claim}
-Source Context: {context}
+    system_prompt="""You are a Fact-Checking & Epistemic Verification Specialist.
+For each given claim:
+1. Examine supporting evidence provided across sources.
+2. Compare sources for consistency and credibility.
+3. Check for contradictions or conflicting assertions across sources.
+4. Calculate a calibrated confidence score (0.0 to 1.0).
+5. Output structured JSON:
+{
+  "claim": "...",
+  "supported": true,
+  "confidence": 0.91,
+  "sources": ["source_url_or_title_1", "source_url_or_title_2"],
+  "contradictions": [],
+  "reasoning": "Explanation of verification findings"
+}""",
+    user_template="""Perform fact-checking verification on the following claim:
+Claim: {claim}
 
-Return JSON with keys: 'status' ('verified' | 'questionable' | 'refuted'), 'confidence' (0.0 to 1.0), and 'reasoning'.""",
+Supporting Evidence & Source Pool:
+{evidence_context}
+
+Available Sources:
+{sources_context}
+
+Return JSON with keys: 'claim' (string), 'supported' (boolean), 'confidence' (float 0.0 to 1.0), 'sources' (array of strings), 'contradictions' (array of strings), 'reasoning' (string).""",
     metadata={"agent": "FactCheckerAgent", "task": "fact_checking"},
 )
 FACT_CHECK_PROMPT = fact_check_prompt
@@ -241,6 +257,59 @@ quantitative comparative breakdown, risks, and strategic horizon.""",
     metadata={"agent": "SynthesizerAgent", "task": "report_generation"},
 )
 REPORT_PROMPT = report_prompt
+
+
+# 7b. Synthesis Prompt (Day 27)
+synthesis_prompt = PromptConfig(
+    name="synthesis_prompt",
+    version="1.0.0",
+    description="Combines task results, evidence, sources, and previous context into structured analytical dimensions.",
+    model=None,
+    temperature=0.3,
+    max_tokens=3500,
+    system_prompt="""You are a Lead Synthesis Agent and Principal Intelligence Strategist.
+Your task is to combine all gathered research (task results, extracted evidence, authoritative sources, and context) into a comprehensive, multi-dimensional intelligence synthesis.
+
+You MUST produce structured JSON containing exactly these 7 core analytical sections:
+1. "key_findings": List of core empirical breakthroughs, verified facts, and strategic insights.
+2. "market_analysis": Detailed market overview, sizing, commercial adoption dynamics, competitive landscape.
+3. "trends": List of emerging technology/market trends and trajectory patterns.
+4. "opportunities": List of high-potential strategic opportunities and growth vectors.
+5. "risks": List of critical technical, financial, regulatory, or operational risks.
+6. "contradictions": List of conflicting claims, divergent data points, or disputed figures identified across sources.
+7. "uncertainty": List of remaining unknowns, research gaps, and areas requiring further empirical validation.
+8. "executive_summary": High-level executive synthesis paragraph.
+
+Format strictly as JSON matching:
+{
+  "key_findings": ["..."],
+  "market_analysis": "...",
+  "trends": ["..."],
+  "opportunities": ["..."],
+  "risks": ["..."],
+  "contradictions": ["..."],
+  "uncertainty": ["..."],
+  "executive_summary": "..."
+}""",
+    user_template="""Synthesize the following research data for research topic: '{query}'.
+
+Previous Context & Objective:
+{previous_context}
+
+Task Results:
+{task_results_summary}
+
+Extracted & Verified Evidence:
+{evidence_summary}
+
+Authoritative Sources:
+{sources_summary}
+
+Output the complete structured intelligence synthesis in valid JSON format.""",
+    metadata={"agent": "SynthesizerAgent", "task": "research_synthesis"},
+)
+SYNTHESIS_PROMPT = synthesis_prompt
+
 
 
 # 8. Analyst Prompt
@@ -349,6 +418,7 @@ PROMPT_REGISTRY: Dict[str, PromptConfig] = {
     "fact_check_prompt": fact_check_prompt,
     "citation_prompt": citation_prompt,
     "report_prompt": report_prompt,
+    "synthesis_prompt": synthesis_prompt,
     "analyst_prompt": analyst_prompt,
     "evidence_extraction_prompt": evidence_extraction_prompt,
     "rag_generation_prompt": rag_generation_prompt,
