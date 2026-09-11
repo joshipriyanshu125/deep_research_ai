@@ -1,26 +1,35 @@
 """
-RAG Retriever — updated for Day 24 Embeddings & Day 23 Semantic Chunking.
+Day 25 — Production RAG Retriever with Hybrid Retrieval & Reranking.
 
-index_sources now uses SemanticChunker + VectorStore batch insert:
+Pipeline:
   Document
     ↓
   Sections (SemanticChunker)
     ↓
   Chunks (carrying page, section, doc_id, metadata)
     ↓
-  Batch Embeddings (1 API call)
+  Batch Embeddings (768-dim normalized vectors)
     ↓
-  Vector Store (768-dim normalized vectors)
+  Vector Store (Cosine similarity candidates)
+    ↓
+  Hybrid Reranker (Semantic + BM25 + Quality + Recency + Context)
+    ↓
+  Top-K Evidence Chunks
 
-Backward-compatible: existing callers pass the same source dicts.
+Backward-compatible: existing callers continue to use `retrieve_relevant_context()`
+or upgraded `retrieve_hybrid()` with research context and score breakdown.
 """
 
 from typing import List, Dict, Any, Optional
 from app.rag.vector_store import vector_store
 from app.rag.chunker import semantic_chunker, text_chunker
+from app.rag.reranker import hybrid_reranker, HybridReranker
 
 
 class RAGRetriever:
+    def __init__(self, reranker: Optional[HybridReranker] = None):
+        self.reranker = reranker or hybrid_reranker
+
     async def index_sources(self, sources: List[Dict[str, Any]]) -> int:
         """
         Index a list of source dicts using the semantic chunker and batch embedding.
@@ -66,7 +75,7 @@ class RAGRetriever:
         min_score: float = 0.0,
     ) -> List[Dict[str, Any]]:
         """
-        Retrieve the most relevant chunks for a sub-query.
+        Retrieve the most relevant chunks for a sub-query using semantic search.
         Returns list of dicts: {content, metadata, score, page, section, chunk_id, document_id}.
         """
         results = await vector_store.search(
@@ -89,13 +98,70 @@ class RAGRetriever:
             for item in results
         ]
 
+    async def retrieve_hybrid(
+        self,
+        query: str,
+        research_context: Optional[str] = None,
+        top_k: int = 4,
+        candidate_multiplier: int = 3,
+        filter_by: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Day 25 Hybrid Retrieval:
+          1. Fetches (candidate_multiplier * top_k) candidates via Vector Search.
+          2. Reranks using HybridReranker (Semantic + Keyword + Quality + Recency + Context).
+          3. Returns top_k enriched chunks with hybrid_score and score_breakdown.
+        """
+        candidate_k = max(top_k * candidate_multiplier, 10)
+        candidates = await vector_store.search(
+            query,
+            top_k=candidate_k,
+            filter_by=filter_by,
+            min_score=0.0,
+        )
+
+        if not candidates:
+            return []
+
+        reranked = self.reranker.rerank(
+            query=query,
+            candidates=candidates,
+            research_context=research_context,
+            top_k=top_k,
+        )
+
+        # Standardize return format while keeping all provenance fields
+        return [
+            {
+                "content": item.get("content", ""),
+                "metadata": item.get("metadata", {}),
+                "score": item.get("hybrid_score", 0.0),
+                "hybrid_score": item.get("hybrid_score", 0.0),
+                "score_breakdown": item.get("score_breakdown", {}),
+                "page": item.get("page"),
+                "section": item.get("section", ""),
+                "chunk_id": item.get("chunk_id", ""),
+                "document_id": item.get("document_id", ""),
+            }
+            for item in reranked
+        ]
+
     async def retrieve_by_section(
         self,
         sub_query: str,
         section: str,
         top_k: int = 4,
+        use_hybrid: bool = False,
+        research_context: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Retrieve chunks only from a specific section (e.g. 'Results' or 'Abstract')."""
+        if use_hybrid:
+            return await self.retrieve_hybrid(
+                query=sub_query,
+                research_context=research_context,
+                top_k=top_k,
+                filter_by={"section": section},
+            )
         return await self.retrieve_relevant_context(
             sub_query,
             top_k=top_k,

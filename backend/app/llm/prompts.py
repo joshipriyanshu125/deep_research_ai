@@ -309,6 +309,34 @@ Return JSON with key 'claims' containing array of extracted claim objects.""",
 EVIDENCE_EXTRACTION_PROMPT = evidence_extraction_prompt
 
 
+# 10. RAG Generation Prompt (Day 25)
+rag_generation_prompt = PromptConfig(
+    name="rag_generation_prompt",
+    version="1.0.0",
+    description="Generates an evidence-grounded answer to a user question using retrieved chunks with inline citations.",
+    model=None,
+    temperature=0.2,
+    max_tokens=3000,
+    system_prompt="""You are a Deep Research AI assistant with access to verified retrieved evidence.
+Your task is to answer the user's question directly, accurately, and strictly using the provided context chunks.
+
+Guidelines:
+1. Ground every factual claim in the provided evidence.
+2. Cite sources inline using bracketed indices like [1], [2] corresponding to the numbered context chunks.
+3. If the provided evidence does not contain sufficient information to answer the question, clearly state what is known and what cannot be determined.
+4. Maintain a clear, objective, and analytical tone.
+5. Provide a 'References' or 'Sources' list at the bottom matching each bracketed index [N] with the corresponding source title and URL.""",
+    user_template="""Question: {question}
+
+{research_context_section}Retrieved Evidence:
+{context_text}
+
+Provide a comprehensive, evidence-grounded answer with inline citations [1], [2], followed by the source bibliography.""",
+    metadata={"module": "RAGPipeline", "task": "rag_generation"},
+)
+RAG_GENERATION_PROMPT = rag_generation_prompt
+
+
 # ===================================================================== #
 #  Prompt Registry & Helper Functions
 # ===================================================================== #
@@ -323,6 +351,7 @@ PROMPT_REGISTRY: Dict[str, PromptConfig] = {
     "report_prompt": report_prompt,
     "analyst_prompt": analyst_prompt,
     "evidence_extraction_prompt": evidence_extraction_prompt,
+    "rag_generation_prompt": rag_generation_prompt,
 }
 
 
