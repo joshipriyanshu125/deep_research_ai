@@ -1,5 +1,6 @@
+from typing import List, Dict, Any
 from fastapi import APIRouter, HTTPException, Response
-from app.database.models.report import ResearchReport
+from app.database.models.report import ResearchReport, Citation, CitationTrace
 from app.services.report_service import report_service
 
 router = APIRouter(prefix="/reports", tags=["Reports"])
@@ -13,6 +14,18 @@ async def get_report(report_id: str):
 @router.get("/by-research/{research_id}", response_model=ResearchReport)
 async def get_report_by_research(research_id: str):
     return await report_service.get_report_by_research(research_id)
+
+
+@router.get("/{report_id}/citations", response_model=List[Citation])
+async def get_report_citations(report_id: str):
+    report = await report_service.get_report_by_id(report_id)
+    return report.citations
+
+
+@router.get("/{report_id}/traceability", response_model=List[CitationTrace])
+async def get_report_traceability(report_id: str):
+    report = await report_service.get_report_by_id(report_id)
+    return report.traceability_matrix
 
 
 @router.get("/{report_id}/export/markdown")
@@ -35,3 +48,4 @@ async def export_report_html(report_id: str):
         media_type="text/html",
         headers={"Content-Disposition": f"attachment; filename=report_{report_id}.html"}
     )
+

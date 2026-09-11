@@ -14,8 +14,8 @@ class ReportFormatter:
                 md += f"- {kf}\n"
             md += "\n"
             
-        md += report.markdown_content + "\n\n"
-        md += citation_engine.format_bibliography_markdown(report.citations)
+        body = report.markdown_content or ""
+        md += citation_engine.append_bibliography_if_missing(body, report.citations)
         return md
 
     def format_html(self, report: ResearchReport) -> str:
@@ -24,3 +24,4 @@ class ReportFormatter:
 
 
 report_formatter = ReportFormatter()
+
