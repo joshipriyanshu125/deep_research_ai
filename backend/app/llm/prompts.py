@@ -260,6 +260,55 @@ Analyze the gathered evidence pool and identify key patterns, consensus findings
 ANALYST_PROMPT_CONFIG = analyst_prompt
 
 
+# 9. Evidence Extraction Prompt (Day 18)
+evidence_extraction_prompt = PromptConfig(
+    name="evidence_extraction_prompt",
+    version="1.0.0",
+    description="Extracts atomic evidence passages and formulates strictly grounded claims with confidence.",
+    model=None,
+    temperature=0.1,
+    max_tokens=2500,
+    system_prompt="""You are an Evidence Extraction Specialist.
+Your task is to analyze candidate source passages and extract atomic, verifiable claims strictly grounded in the text.
+Do NOT fabricate, extrapolate, or generalize beyond what is stated in the passage.
+
+Follow the hierarchy:
+Source -> Relevant Passage -> Evidence (exact quote) -> Grounded Claim
+
+For each empirical fact, statistic, or core insight, extract:
+- claim: Crisp, objective, standalone claim.
+- evidence: Exact passage or verbatim quote supporting the claim.
+- confidence: Score between 0.0 and 1.0 reflecting clarity and empirical certainty.
+- metrics: Extracted quantitative metrics, dates, percentages, or figures.
+- supporting_entities: Named entities, companies, or organizations.
+- evidence_type: 'statistic' | 'empirical_finding' | 'quote' | 'policy_event' | 'market_metric'
+
+Respond strictly in valid JSON format:
+{
+  "claims": [
+    {
+      "claim": "EV sales in India increased by 45% YoY in 2025.",
+      "evidence": "According to industry data, EV sales in India increased by 45% YoY in 2025.",
+      "confidence": 0.95,
+      "metrics": ["45% YoY", "2025"],
+      "supporting_entities": ["India"],
+      "evidence_type": "statistic"
+    }
+  ]
+}""",
+    user_template="""Extract atomic evidence items from the following passage for research objective '{topic}':
+
+Source Title: {title}
+Source Domain: {domain}
+Passage Content:
+{passage}
+
+Return JSON with key 'claims' containing array of extracted claim objects.""",
+    metadata={"module": "EvidenceExtractor", "task": "evidence_extraction"},
+)
+EVIDENCE_EXTRACTION_PROMPT = evidence_extraction_prompt
+
+
 # ===================================================================== #
 #  Prompt Registry & Helper Functions
 # ===================================================================== #
@@ -273,6 +322,7 @@ PROMPT_REGISTRY: Dict[str, PromptConfig] = {
     "citation_prompt": citation_prompt,
     "report_prompt": report_prompt,
     "analyst_prompt": analyst_prompt,
+    "evidence_extraction_prompt": evidence_extraction_prompt,
 }
 
 

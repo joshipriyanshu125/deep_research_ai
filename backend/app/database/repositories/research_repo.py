@@ -63,17 +63,24 @@ class ResearchRepository:
         )
 
     async def add_evidence(self, evidence: Evidence) -> Evidence:
-        if db_manager.is_connected:
-            await db_manager.db.evidence.insert_one(evidence.model_dump())
-        else:
-            self._evidence[evidence.id] = evidence
-        return evidence
+        from app.database.repositories.evidence_repo import evidence_repo
+        return await evidence_repo.create_evidence(evidence)
 
-    async def get_evidence_by_research(self, research_id: str) -> List[Evidence]:
-        if db_manager.is_connected:
-            cursor = db_manager.db.evidence.find({"research_id": research_id})
-            return [Evidence(**doc) async for doc in cursor]
-        return [e for e in self._evidence.values() if e.research_id == research_id]
+    async def get_evidence_by_research(
+        self,
+        research_id: str,
+        source_id: Optional[str] = None,
+        verification_status: Optional[str] = None,
+        min_confidence: Optional[float] = None,
+    ) -> List[Evidence]:
+        from app.database.repositories.evidence_repo import evidence_repo
+        return await evidence_repo.get_evidence_by_research(
+            research_id=research_id,
+            source_id=source_id,
+            verification_status=verification_status,
+            min_confidence=min_confidence,
+        )
 
 
 research_repo = ResearchRepository()
+
