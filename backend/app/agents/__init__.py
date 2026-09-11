@@ -12,7 +12,9 @@ from app.agents.web_agent import (
     DeepWebResearchAgent,
     deep_web_research_agent,
 )
-from app.agents.paper_agent import PaperAgent, paper_agent
+from app.agents.paper_agent import AcademicPaperAgent, paper_agent
+# Backward-compatible alias
+PaperAgent = AcademicPaperAgent
 from app.agents.research_agent import ResearchAgent, research_agent
 
 __all__ = [
@@ -28,6 +30,7 @@ __all__ = [
     "web_agent",
     "DeepWebResearchAgent",
     "deep_web_research_agent",
+    "AcademicPaperAgent",
     "PaperAgent",
     "paper_agent",
     "ResearchAgent",
