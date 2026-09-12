@@ -43,9 +43,11 @@ class ResearchOrchestrator:
             await research_repo.update_job(job)
             yield {"event": "status", "data": job.model_dump(mode="json")}
 
-            # 1. Planning Phase
-            tasks = await research_planner.create_plan(job.query, depth=job.depth, breadth=job.breadth)
+            # 1. Planning Phase. Persisted tasks are reused after a worker restart.
+            tasks = job.tasks or await research_planner.create_plan(job.query, depth=job.depth, breadth=job.breadth)
             job.tasks = tasks
+            job.checkpoint_phase = "planned"
+            job.checkpoint_data["task_ids"] = [t.id for t in tasks]
             job.progress_percentage = 25
             job.current_step = f"Generated {len(tasks)} parallel exploration vectors across Web, Academic, and Market."
             await research_repo.update_job(job)
@@ -59,6 +61,7 @@ class ResearchOrchestrator:
 
             # 2. Execution Phase
             job.status = ResearchStatus.SEARCHING
+            job.checkpoint_phase = "searching"
             job.progress_percentage = 40
             job.current_step = f"Executing {len(tasks)} parallel exploration vectors across Web, Papers, and Market..."
             await research_repo.update_job(job)
@@ -76,11 +79,19 @@ class ResearchOrchestrator:
                         data={"source": s.model_dump(mode="json") if hasattr(s, "model_dump") else s.__dict__},
                     )
 
-            sources = await research_executor.execute_tasks(
+            existing_sources = await research_repo.get_sources_by_research(job.id)
+            sources = existing_sources + await research_executor.execute_tasks(
                 tasks=tasks,
                 research_id=job.id,
                 on_task_complete=_on_task_finished,
             )
+            unique_sources = {}
+            for source in sources:
+                unique_sources[source.id] = source
+            sources = list(unique_sources.values())
+            job.source_ids = [source.id for source in sources]
+            job.checkpoint_data["source_ids"] = job.source_ids
+            await research_repo.update_job(job)
 
             job.progress_percentage = 60
             job.current_step = f"Retrieved and validated {len(sources)} authoritative sources across parallel tracks."
@@ -95,6 +106,7 @@ class ResearchOrchestrator:
 
             # 3. Knowledge / RAG Indexing & Evidence Extraction
             job.status = ResearchStatus.EXTRACTING
+            job.checkpoint_phase = "extracting"
             job.progress_percentage = 70
             job.current_step = "Indexing RAG knowledge vectors and harvesting atomic evidence..."
             await research_repo.update_job(job)
@@ -102,8 +114,11 @@ class ResearchOrchestrator:
 
             await rag_retriever.index_sources([s.model_dump() for s in sources])
 
-            all_evidence = []
+            all_evidence = await research_repo.get_evidence_by_research(job.id)
+            existing_evidence_source_ids = {e.source_id for e in all_evidence}
             for s in sources:
+                if s.id in existing_evidence_source_ids:
+                    continue
                 evs = evidence_extractor.extract_evidence(s, job.id)
                 for ev in evs:
                     await research_repo.add_evidence(ev)
@@ -119,6 +134,7 @@ class ResearchOrchestrator:
 
             # 4. Fact Verification & Epistemic Audit
             job.status = ResearchStatus.ANALYZING
+            job.checkpoint_phase = "analyzing"
             job.progress_percentage = 80
             job.current_step = "Conducting epistemic cross-examination & fact verification across source claims..."
             await research_repo.update_job(job)
@@ -149,6 +165,7 @@ class ResearchOrchestrator:
 
             # 5. Citation Generation & Multi-Dimensional Synthesis
             job.status = ResearchStatus.SYNTHESIZING
+            job.checkpoint_phase = "synthesizing"
             job.progress_percentage = 90
             job.current_step = "Synthesizing multi-section publication report across all findings, trends, and risks..."
             await research_repo.update_job(job)
@@ -167,6 +184,8 @@ class ResearchOrchestrator:
                 "breadth": job.breadth,
                 "categories": job.categories,
                 "task_count": len(tasks),
+                "checkpoint": job.checkpoint_data,
+                "parent_research_id": job.parent_research_id,
             }
 
             report: ResearchReport = await synthesizer_agent.synthesize_report(
@@ -184,6 +203,7 @@ class ResearchOrchestrator:
             # 6. Completion
             job.report_id = report.id
             job.status = ResearchStatus.COMPLETED
+            job.checkpoint_phase = "completed"
             job.progress_percentage = 100
             job.current_step = "Research successfully completed."
             job.completed_at = datetime.now(timezone.utc)

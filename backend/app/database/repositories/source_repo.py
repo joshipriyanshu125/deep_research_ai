@@ -5,7 +5,7 @@ with in-memory fallback, fast content_hash duplicate check, and multi-criteria q
 """
 from typing import Optional, List, Dict, Any
 from app.database.mongodb import db_manager
-from app.database.models.source import Source, SourceType
+from app.database.models.source import Source, SourceType, normalize_url, content_similarity
 
 
 class SourceRepository:
@@ -18,11 +18,45 @@ class SourceRepository:
 
     async def create_source(self, source: Source) -> Source:
         """Insert a source record into `research_sources`."""
+        source.url = normalize_url(source.url)
+        existing = await self.find_duplicate(source)
+        if existing:
+            return existing
         if db_manager.is_connected:
             await db_manager.db.research_sources.insert_one(source.model_dump())
         else:
             self._sources[source.source_id] = source
         return source
+
+    async def find_duplicate(self, source: Source, similarity_threshold: float = 0.92) -> Optional[Source]:
+        """Find an existing source by normalized URL, hash, or near-identical content."""
+        query = {"research_id": source.research_id, "$or": [
+            {"url": normalize_url(source.url)},
+            {"content_hash": source.content_hash},
+            {"normalized_hash": source.normalized_hash},
+        ]}
+        if db_manager.is_connected:
+            doc = await db_manager.db.research_sources.find_one(query)
+            if doc:
+                return Source(**doc)
+            candidates = db_manager.db.research_sources.find({"research_id": source.research_id})
+            async for doc in candidates:
+                candidate = Source(**doc)
+                if len(candidate.content.strip()) >= 40 and len(source.content.strip()) >= 40 and content_similarity(candidate.content, source.content) >= similarity_threshold:
+                    return candidate
+            return None
+        for candidate in self._sources.values():
+            if candidate.research_id != source.research_id:
+                continue
+            if normalize_url(candidate.url) == normalize_url(source.url) or (
+                source.content_hash and candidate.content_hash == source.content_hash
+            ) or (
+                source.normalized_hash and candidate.normalized_hash == source.normalized_hash
+            ):
+                return candidate
+            if len(candidate.content.strip()) >= 40 and len(source.content.strip()) >= 40 and content_similarity(candidate.content, source.content) >= similarity_threshold:
+                return candidate
+        return None
 
     async def get_source(self, source_id: str) -> Optional[Source]:
         """Fetch single source by source_id or id."""

@@ -21,6 +21,7 @@ import asyncio
 from typing import List, Dict, Any, Optional, Set, AsyncGenerator, Callable
 from app.database.models.research import ResearchTask
 from app.database.models.source import Source
+from app.database.models.source import normalize_url, normalized_content_hash, content_similarity
 from app.agents.research_agent import research_agent
 from app.research.events import TASK_STARTED, TASK_COMPLETED, SEARCH_COMPLETED, SOURCE_FOUND, research_event_bus
 from app.utils.logger import logger
@@ -47,6 +48,11 @@ class ParallelResearchExecutor:
         Execute research tasks concurrently across all categories (Web, Papers, Market).
         Deduplicates sources across parallel tracks and logs speedup metrics.
         """
+        if not tasks:
+            return []
+        # Completed task records are durable checkpoints and need not be rerun
+        # when a worker resumes a failed job.
+        tasks = [task for task in tasks if task.status != "completed"]
         if not tasks:
             return []
 
@@ -106,21 +112,29 @@ class ParallelResearchExecutor:
         all_sources: List[Source] = []
         seen_urls: Set[str] = set()
         seen_hashes: Set[str] = set()
+        unique_sources: List[Source] = []
 
         for res in results:
             if isinstance(res, list):
                 for s in res:
-                    url_key = (s.url or "").strip().rstrip("/")
+                    s.url = normalize_url(s.url)
+                    if not s.content_hash:
+                        s.content_hash = normalized_content_hash(s.content)
+                    url_key = s.url
                     hash_key = getattr(s, "content_hash", "")
                     if url_key and url_key in seen_urls:
                         continue
                     if hash_key and hash_key in seen_hashes:
+                        continue
+                    if any(len(existing.content.strip()) >= 40 and len(s.content.strip()) >= 40 and content_similarity(existing.content, s.content) >= 0.92
+                           for existing in unique_sources if existing.content and s.content):
                         continue
                     if url_key:
                         seen_urls.add(url_key)
                     if hash_key:
                         seen_hashes.add(hash_key)
                     all_sources.append(s)
+                    unique_sources.append(s)
                     research_event_bus.emit(
                         SOURCE_FOUND,
                         job_id=research_id,
@@ -232,4 +246,3 @@ class ParallelResearchExecutor:
 # Export alias and singleton
 ResearchExecutor = ParallelResearchExecutor
 research_executor = ParallelResearchExecutor()
-

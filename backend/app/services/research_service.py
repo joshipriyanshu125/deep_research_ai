@@ -15,7 +15,33 @@ class ResearchService:
             categories=request.categories,
             status=ResearchStatus.PENDING
         )
-        return await research_repo.create_job(job)
+        await research_repo.create_job(job)
+        from app.workers.research_worker import research_worker
+        await research_worker.enqueue_job(job)
+        return job
+
+    async def create_follow_up(self, parent: ResearchJob, query: str) -> ResearchJob:
+        job = ResearchJob(
+            user_id=parent.user_id, query=query, depth=parent.depth, breadth=parent.breadth,
+            categories=parent.categories, parent_research_id=parent.id,
+            checkpoint_data={"previous_plan": [t.model_dump(mode="json") for t in parent.tasks],
+                             "source_ids": parent.source_ids, "evidence_ids": parent.evidence_ids,
+                             "report_id": parent.report_id})
+        await research_repo.create_job(job)
+        from app.workers.research_worker import research_worker
+        await research_worker.enqueue_job(job)
+        return job
+
+    async def resume_research(self, job: ResearchJob) -> ResearchJob:
+        if job.status != ResearchStatus.FAILED:
+            raise HTTPException(status_code=422, detail="Only failed research jobs can be resumed")
+        job.status = ResearchStatus.PENDING
+        job.error_message = None
+        job.completed_at = None
+        await research_repo.update_job(job)
+        from app.workers.research_worker import research_worker
+        await research_worker.enqueue_job(job)
+        return job
 
     async def get_job_status(self, job_id: str) -> ResearchJob:
         job = await research_repo.get_job(job_id)

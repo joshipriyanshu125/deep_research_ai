@@ -29,6 +29,7 @@ class ResearchWorker:
                 break
             except Exception as e:
                 logger.error(f"Worker encountered error processing job: {e}")
+                self.queue.task_done()
 
 
 research_worker = ResearchWorker()

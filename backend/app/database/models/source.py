@@ -2,7 +2,7 @@ import hashlib
 import re
 from datetime import datetime
 from typing import Optional, Dict, Any, List
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
 from pydantic import BaseModel, Field, model_validator, field_serializer
 from app.utils.helpers import generate_uuid, get_utc_now
 
@@ -35,6 +35,47 @@ def compute_content_hash(text: str) -> str:
     if not text:
         text = ""
     return hashlib.sha256(text.strip().encode("utf-8")).hexdigest()
+
+
+def normalize_url(url: str) -> str:
+    """Return a stable URL suitable for source identity comparisons."""
+    if not url:
+        return ""
+    value = url.strip()
+    if not value.startswith(("http://", "https://")):
+        value = "https://" + value
+    try:
+        parsed = urlparse(value)
+        scheme = parsed.scheme.lower()
+        host = (parsed.hostname or "").lower()
+        if not host:
+            return value.rstrip("/")
+        if parsed.port and parsed.port not in (80, 443):
+            host = f"{host}:{parsed.port}"
+        path = re.sub(r"/+", "/", parsed.path or "/")
+        if path != "/" and path.endswith("/"):
+            path = path[:-1]
+        query = urlencode(sorted(
+            (k, v) for k, v in parse_qsl(parsed.query, keep_blank_values=True)
+            if not k.lower().startswith(("utm_", "fbclid", "gclid"))
+        ))
+        return urlunparse((scheme, host, path, "", query, ""))
+    except Exception:
+        return value.rstrip("/")
+
+
+def normalized_content_hash(text: str) -> str:
+    """Hash content after whitespace/case normalization."""
+    normalized = re.sub(r"\s+", " ", (text or "").strip()).casefold()
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def content_similarity(left: str, right: str) -> float:
+    """Cheap, dependency-free similarity score for duplicate detection."""
+    from difflib import SequenceMatcher
+    a = re.sub(r"\s+", " ", (left or "").strip()).casefold()
+    b = re.sub(r"\s+", " ", (right or "").strip()).casefold()
+    return SequenceMatcher(None, a, b).ratio() if a or b else 1.0
 
 
 def extract_domain_from_url(url: str) -> str:
@@ -127,6 +168,7 @@ class Source(BaseModel):
     relevance_score: float = 0.0
     credibility_score: float = 0.8
     content_hash: str = ""
+    normalized_hash: str = ""
     snippet: Optional[str] = ""
     query: Optional[str] = ""
     metadata: Dict[str, Any] = Field(default_factory=dict)
@@ -146,6 +188,8 @@ class Source(BaseModel):
             data["id"] = sid
 
             # 2. Domain extraction
+            if data.get("url"):
+                data["url"] = normalize_url(data["url"])
             if not data.get("domain") and data.get("url"):
                 data["domain"] = extract_domain_from_url(data["url"])
 
@@ -158,7 +202,11 @@ class Source(BaseModel):
 
             # 4. Content hash calculation
             if not data.get("content_hash"):
+                # Keep the legacy hash contract; normalized_content_hash is available
+                # to callers that need whitespace-insensitive identity.
                 data["content_hash"] = compute_content_hash(cnt or data.get("url", ""))
+            if not data.get("normalized_hash"):
+                data["normalized_hash"] = normalized_content_hash(cnt or data.get("url", ""))
 
             # 5. Publication dates sync
             pub_date = (

@@ -48,6 +48,10 @@ class ResearchRequest(BaseModel):
     custom_instructions: Optional[str] = None
 
 
+class FollowUpRequest(BaseModel):
+    query: str
+
+
 class ResearchJob(BaseModel):
     id: str = Field(default_factory=generate_uuid)
     user_id: Optional[str] = "anonymous"
@@ -66,3 +70,6 @@ class ResearchJob(BaseModel):
     error_message: Optional[str] = None
     created_at: datetime = Field(default_factory=get_utc_now)
     completed_at: Optional[datetime] = None
+    checkpoint_phase: str = "pending"
+    checkpoint_data: Dict[str, Any] = Field(default_factory=dict)
+    parent_research_id: Optional[str] = None
