@@ -7,6 +7,8 @@ from app.database.models.evidence import Evidence
 from app.database.models.source import Source
 from app.database.models.report import FactCheckResult
 from app.utils.logger import logger
+from app.research.contradictions import contradiction_detector
+from app.research.confidence import assess_confidence
 
 
 class FactCheckerAgent:
@@ -130,8 +132,6 @@ class FactCheckerAgent:
         contradictions: List[str] = []
         search_pool = evidence_pool or supporting_evidences
 
-        claim_lower = claim.lower()
-
         # Check for explicitly disputed status in evidence
         for ev in supporting_evidences:
             if ev.verification_status in ("disputed", "refuted"):
@@ -139,24 +139,10 @@ class FactCheckerAgent:
                     f"Evidence from source '{ev.source_title or ev.source_id}' is flagged as {ev.verification_status}."
                 )
 
-        # Numerical and polarity conflict heuristics
-        has_positive_growth = any(w in claim_lower for w in ["increase", "growth", "grew", "rose", "expanded", "surge"])
-        has_negative_growth = any(w in claim_lower for w in ["decrease", "decline", "fell", "dropped", "shrank", "collapsed"])
-
-        for ev in search_pool:
-            ev_claim = ev.claim.lower()
-            # Opposing trend check on same topic
-            if has_positive_growth and any(w in ev_claim for w in ["decrease", "decline", "fell", "dropped", "shrank"]):
-                # If they share substantial token overlap
-                claim_words = set(claim_lower.split())
-                ev_words = set(ev_claim.split())
-                if len(claim_words.intersection(ev_words)) >= 3:
-                    contradictions.append(f"Conflicting trend reported: '{ev.claim}' vs '{claim}'")
-            elif has_negative_growth and any(w in ev_claim for w in ["increase", "growth", "grew", "rose", "expanded"]):
-                claim_words = set(claim_lower.split())
-                ev_words = set(ev_claim.split())
-                if len(claim_words.intersection(ev_words)) >= 3:
-                    contradictions.append(f"Conflicting trend reported: '{ev.claim}' vs '{claim}'")
+        contradictions.extend(
+            finding.format()
+            for finding in contradiction_detector.detect(claim, search_pool)
+        )
 
         return list(dict.fromkeys(contradictions))  # Deduplicate
 
@@ -228,6 +214,12 @@ class FactCheckerAgent:
             contradictions=contradictions,
             avg_source_credibility=source_comp["avg_credibility"],
         )
+        assessment = assess_confidence(
+            evidence=supporting,
+            sources=sources or [],
+            contradictions=contradictions,
+        )
+        confidence = min(confidence, assessment.score) if contradictions else max(confidence, assessment.score)
 
         # Step 5: Formulate verdict
         is_supported = len(supporting) > 0 and confidence >= 0.60 and len(contradictions) == 0
@@ -283,6 +275,8 @@ class FactCheckerAgent:
             supporting_evidence=supporting_quotes,
             reasoning=reasoning,
             verification_status=status,
+            confidence_level=assessment.level,
+            confidence_factors=assessment.factors,
         )
 
     async def fact_check_batch(

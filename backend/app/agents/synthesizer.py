@@ -20,6 +20,7 @@ from app.database.models.report import (
 )
 from app.research.citation import citation_engine
 from app.utils.logger import logger
+from app.research.confidence import assess_confidence
 
 
 class SynthesisResult(BaseModel):
@@ -42,6 +43,9 @@ class SynthesisResult(BaseModel):
     contradictions: List[str] = Field(default_factory=list)
     uncertainty: List[str] = Field(default_factory=list)
     executive_summary: str = ""
+    confidence: float = 0.0
+    confidence_level: str = "LOW"
+    confidence_factors: List[str] = Field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -53,6 +57,9 @@ class SynthesisResult(BaseModel):
             "contradictions": self.contradictions,
             "uncertainty": self.uncertainty,
             "executive_summary": self.executive_summary,
+            "confidence": round(self.confidence, 4),
+            "confidence_level": self.confidence_level,
+            "confidence_factors": self.confidence_factors,
         }
 
 
@@ -123,6 +130,9 @@ class SynthesizerAgent:
                     contradictions=parsed.get("contradictions") or heuristic_res.contradictions,
                     uncertainty=parsed.get("uncertainty") or heuristic_res.uncertainty,
                     executive_summary=parsed.get("executive_summary") or heuristic_res.executive_summary,
+                    confidence=heuristic_res.confidence,
+                    confidence_level=heuristic_res.confidence_level,
+                    confidence_factors=heuristic_res.confidence_factors,
                 )
         except Exception as e:
             logger.warning(f"LLM synthesis error, falling back to heuristic: {e}")
@@ -238,6 +248,9 @@ class SynthesizerAgent:
             contradictions=synthesis.contradictions,
             uncertainty=synthesis.uncertainty,
             fact_checks=fact_checks or [],
+            confidence=synthesis.confidence,
+            confidence_level=synthesis.confidence_level,
+            confidence_factors=synthesis.confidence_factors,
             quality_score=9.6,
         )
         return report
@@ -370,6 +383,11 @@ class SynthesizerAgent:
             f"{len(evidence)} verified evidence items, and {len(sources)} authoritative sources. Core findings confirm robust "
             f"growth trajectories alongside actionable opportunities in scalable deployment."
         )
+        confidence_assessment = assess_confidence(
+            evidence=evidence,
+            sources=sources,
+            contradictions=contradictions,
+        )
 
         return SynthesisResult(
             key_findings=key_findings,
@@ -380,6 +398,9 @@ class SynthesizerAgent:
             contradictions=contradictions,
             uncertainty=uncertainty,
             executive_summary=exec_summary,
+            confidence=confidence_assessment.score,
+            confidence_level=confidence_assessment.level,
+            confidence_factors=confidence_assessment.factors,
         )
 
     def _build_fallback_markdown(

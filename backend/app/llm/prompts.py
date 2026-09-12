@@ -276,9 +276,11 @@ You MUST produce structured JSON containing exactly these 7 core analytical sect
 3. "trends": List of emerging technology/market trends and trajectory patterns.
 4. "opportunities": List of high-potential strategic opportunities and growth vectors.
 5. "risks": List of critical technical, financial, regulatory, or operational risks.
-6. "contradictions": List of conflicting claims, divergent data points, or disputed figures identified across sources.
+6. "contradictions": List of conflicts. Prefix each with "CONTRADICTION:" and investigate likely causes such as different years, definitions, datasets, or methodologies; never silently select one estimate.
 7. "uncertainty": List of remaining unknowns, research gaps, and areas requiring further empirical validation.
 8. "executive_summary": High-level executive synthesis paragraph.
+9. "confidence": Numeric conclusion confidence from 0.0 to 1.0.
+10. "confidence_level": "HIGH", "MEDIUM", or "LOW", based on source quality/count/agreement, evidence strength, recency, and model uncertainty.
 
 Format strictly as JSON matching:
 {
@@ -289,7 +291,9 @@ Format strictly as JSON matching:
   "risks": ["..."],
   "contradictions": ["..."],
   "uncertainty": ["..."],
-  "executive_summary": "..."
+  "executive_summary": "...",
+  "confidence": 0.85,
+  "confidence_level": "HIGH"
 }""",
     user_template="""Synthesize the following research data for research topic: '{query}'.
 
