@@ -72,6 +72,8 @@ class FactCheckResult(BaseModel):
     claim: str
     supported: bool = True
     confidence: float = Field(default=0.90, ge=0.0, le=1.0)
+    confidence_level: str = "HIGH"
+    confidence_factors: List[str] = Field(default_factory=list)
     sources: List[str] = Field(default_factory=list)
     contradictions: List[str] = Field(default_factory=list)
     supporting_evidence: List[str] = Field(default_factory=list)
@@ -84,6 +86,8 @@ class FactCheckResult(BaseModel):
             "claim": self.claim,
             "supported": self.supported,
             "confidence": round(self.confidence, 4),
+            "confidence_level": self.confidence_level,
+            "confidence_factors": self.confidence_factors,
             "sources": self.sources,
             "contradictions": self.contradictions,
             "supporting_evidence": self.supporting_evidence,
@@ -114,11 +118,13 @@ class ResearchReport(BaseModel):
     contradictions: List[str] = Field(default_factory=list)
     uncertainty: List[str] = Field(default_factory=list)
     fact_checks: List[FactCheckResult] = Field(default_factory=list)
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    confidence_level: str = "LOW"
+    confidence_factors: List[str] = Field(default_factory=list)
     quality_score: float = 9.5
     created_at: datetime = Field(default_factory=get_utc_now)
 
     @field_serializer("created_at")
     def _serialize_dt(self, dt: datetime) -> str:
         return dt.isoformat()
-
 

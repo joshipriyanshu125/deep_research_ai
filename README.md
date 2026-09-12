@@ -327,6 +327,16 @@ It can:
 * Identify unsupported statements
 * Assign confidence levels
 
+### Day 29–30: Contradiction and Confidence Representation
+
+Conflicting estimates are surfaced as `CONTRADICTION` findings instead of being
+silently selected. Each finding preserves both claims and investigates likely
+causes, including different years, definitions, datasets, or methodologies.
+Important conclusions expose both the existing numeric confidence score and an
+ordinal `confidence_level` (`HIGH`, `MEDIUM`, or `LOW`) with factors covering
+source quality, source count/agreement, evidence strength, recency, and model
+uncertainty.
+
 ---
 
 ## 7. Analysis Agent
