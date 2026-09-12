@@ -21,6 +21,7 @@ from app.database.models.report import (
 from app.research.citation import citation_engine
 from app.utils.logger import logger
 from app.research.confidence import assess_confidence
+from app.reports.sections import build_report_sections
 
 
 class SynthesisResult(BaseModel):
@@ -39,6 +40,7 @@ class SynthesisResult(BaseModel):
     market_analysis: str = ""
     trends: List[str] = Field(default_factory=list)
     opportunities: List[str] = Field(default_factory=list)
+    recommendations: List[str] = Field(default_factory=list)
     risks: List[str] = Field(default_factory=list)
     contradictions: List[str] = Field(default_factory=list)
     uncertainty: List[str] = Field(default_factory=list)
@@ -53,6 +55,7 @@ class SynthesisResult(BaseModel):
             "market_analysis": self.market_analysis,
             "trends": self.trends,
             "opportunities": self.opportunities,
+            "recommendations": self.recommendations,
             "risks": self.risks,
             "contradictions": self.contradictions,
             "uncertainty": self.uncertainty,
@@ -126,6 +129,7 @@ class SynthesizerAgent:
                     market_analysis=parsed.get("market_analysis") or heuristic_res.market_analysis,
                     trends=parsed.get("trends") or heuristic_res.trends,
                     opportunities=parsed.get("opportunities") or heuristic_res.opportunities,
+                    recommendations=parsed.get("recommendations") or heuristic_res.recommendations,
                     risks=parsed.get("risks") or heuristic_res.risks,
                     contradictions=parsed.get("contradictions") or heuristic_res.contradictions,
                     uncertainty=parsed.get("uncertainty") or heuristic_res.uncertainty,
@@ -194,38 +198,7 @@ class SynthesizerAgent:
         # Extract cited indices
         cited_indices = citation_engine.extract_citation_indices(markdown_body)
 
-        # Build structured report sections incorporating synthesis dimensions
-        sections = [
-            ReportSection(
-                title="Executive Summary",
-                content=synthesis.executive_summary or "High-level distillation of core empirical findings.",
-                citations=cited_indices[:2],
-            ),
-            ReportSection(
-                title="Market Analysis & Commercial Trajectory",
-                content=synthesis.market_analysis or "Evaluation of industry adoption, addressable market, and competitive dynamics.",
-                citations=cited_indices[:3],
-            ),
-            ReportSection(
-                title="Technical & Empirical Analysis",
-                content=full_markdown,
-                citations=cited_indices,
-            ),
-            ReportSection(
-                title="Strategic Opportunities & Emerging Trends",
-                content="\n".join([f"- **Trend**: {t}" for t in synthesis.trends] + [f"- **Opportunity**: {o}" for o in synthesis.opportunities]),
-                citations=[],
-            ),
-            ReportSection(
-                title="Risks, Contradictions & Epistemic Uncertainty",
-                content="\n".join(
-                    [f"- **Risk**: {r}" for r in synthesis.risks]
-                    + [f"- **Contradiction**: {c}" for c in synthesis.contradictions]
-                    + [f"- **Uncertainty**: {u}" for u in synthesis.uncertainty]
-                ),
-                citations=[],
-            ),
-        ]
+        sections = build_report_sections(query, synthesis, full_markdown, cited_indices)
 
         research_id = sources[0].research_id if sources else (evidence[0].research_id if evidence else "default")
 
@@ -239,11 +212,13 @@ class SynthesizerAgent:
             markdown_content=full_markdown,
             sections=sections,
             citations=citations,
+            sources=citations,
             traceability_matrix=traceability_matrix,
             key_findings=synthesis.key_findings,
             market_analysis=synthesis.market_analysis,
             trends=synthesis.trends,
             opportunities=synthesis.opportunities,
+            recommendations=synthesis.recommendations,
             risks=synthesis.risks,
             contradictions=synthesis.contradictions,
             uncertainty=synthesis.uncertainty,
@@ -348,6 +323,11 @@ class SynthesizerAgent:
             "Unlocking high-margin enterprise segments by providing verifiable data lineage",
         ]
 
+        recommendations = [
+            f"Prioritize evidence-backed pilots focused on the highest-value use cases for {query}",
+            "Track contradiction findings and confidence factors before making irreversible decisions",
+        ]
+
         # 5. Risks
         risks = [
             "Epistemic hallucinations and data divergence across disparate unverified web sources",
@@ -394,6 +374,7 @@ class SynthesizerAgent:
             market_analysis=market_analysis,
             trends=trends,
             opportunities=opportunities,
+            recommendations=recommendations,
             risks=risks,
             contradictions=contradictions,
             uncertainty=uncertainty,
@@ -429,6 +410,10 @@ class SynthesizerAgent:
             lines.append(f"- **Trend**: {t}")
         for o in synthesis.opportunities:
             lines.append(f"- **Opportunity**: {o}")
+
+        lines.append("\n## Strategic Recommendations")
+        for recommendation in synthesis.recommendations:
+            lines.append(f"- {recommendation}")
 
         lines.extend([
             "\n## Risks, Contradictions & Epistemic Uncertainty",

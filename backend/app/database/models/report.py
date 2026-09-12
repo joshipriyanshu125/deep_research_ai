@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field, field_serializer
+from pydantic import BaseModel, Field, field_serializer, model_validator
 from app.utils.helpers import generate_uuid, get_utc_now
 
 
@@ -109,11 +109,13 @@ class ResearchReport(BaseModel):
     markdown_content: str
     sections: List[ReportSection] = Field(default_factory=list)
     citations: List[Citation] = Field(default_factory=list)
+    sources: List[Citation] = Field(default_factory=list)
     traceability_matrix: List[CitationTrace] = Field(default_factory=list)
     key_findings: List[str] = Field(default_factory=list)
     market_analysis: Optional[str] = None
     trends: List[str] = Field(default_factory=list)
     opportunities: List[str] = Field(default_factory=list)
+    recommendations: List[str] = Field(default_factory=list)
     risks: List[str] = Field(default_factory=list)
     contradictions: List[str] = Field(default_factory=list)
     uncertainty: List[str] = Field(default_factory=list)
@@ -124,7 +126,23 @@ class ResearchReport(BaseModel):
     quality_score: float = 9.5
     created_at: datetime = Field(default_factory=get_utc_now)
 
+    @model_validator(mode="before")
+    @classmethod
+    def synchronize_source_fields(cls, data: Any) -> Any:
+        """Accept both legacy citation payloads and the structured sources field."""
+        if isinstance(data, dict):
+            citations = data.get("citations")
+            sources = data.get("sources")
+            if not citations and sources:
+                data["citations"] = sources
+            elif not sources and citations:
+                data["sources"] = citations
+        return data
+
     @field_serializer("created_at")
     def _serialize_dt(self, dt: datetime) -> str:
         return dt.isoformat()
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Return the complete structured report in JSON-compatible form."""
+        return self.model_dump(mode="json")

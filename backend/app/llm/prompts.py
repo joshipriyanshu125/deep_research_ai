@@ -278,9 +278,10 @@ You MUST produce structured JSON containing exactly these 7 core analytical sect
 5. "risks": List of critical technical, financial, regulatory, or operational risks.
 6. "contradictions": List of conflicts. Prefix each with "CONTRADICTION:" and investigate likely causes such as different years, definitions, datasets, or methodologies; never silently select one estimate.
 7. "uncertainty": List of remaining unknowns, research gaps, and areas requiring further empirical validation.
-8. "executive_summary": High-level executive synthesis paragraph.
-9. "confidence": Numeric conclusion confidence from 0.0 to 1.0.
-10. "confidence_level": "HIGH", "MEDIUM", or "LOW", based on source quality/count/agreement, evidence strength, recency, and model uncertainty.
+8. "recommendations": List of actionable recommendations grounded in the findings.
+9. "executive_summary": High-level executive synthesis paragraph.
+10. "confidence": Numeric conclusion confidence from 0.0 to 1.0.
+11. "confidence_level": "HIGH", "MEDIUM", or "LOW", based on source quality/count/agreement, evidence strength, recency, and model uncertainty.
 
 Format strictly as JSON matching:
 {
@@ -288,6 +289,7 @@ Format strictly as JSON matching:
   "market_analysis": "...",
   "trends": ["..."],
   "opportunities": ["..."],
+  "recommendations": ["..."],
   "risks": ["..."],
   "contradictions": ["..."],
   "uncertainty": ["..."],
