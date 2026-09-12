@@ -25,6 +25,9 @@ from app.rag.retriever import rag_retriever
 from app.agents.analyst import analyst_agent
 from app.agents.fact_checker import fact_checker_agent
 from app.agents.synthesizer import synthesizer_agent
+from app.research.quality_scorer import research_quality_scorer
+from app.research.stopping_criteria import research_stopping_criteria
+from app.research.agent_orchestrator import research_agent_orchestrator, AgentRole
 from app.utils.logger import logger
 
 
@@ -200,7 +203,35 @@ class ResearchOrchestrator:
             report.research_id = job.id
             await report_repo.create(report)
 
-            # 6. Completion
+            # 6. Quality Scoring (Day 50)
+            quality = research_quality_scorer.score(
+                sources=sources,
+                evidence=all_evidence,
+                tasks=tasks,
+                citations=citations,
+                fact_checks=fact_check_results,
+                report=report,
+            )
+            quality_dict = quality.to_dict()
+            logger.info(
+                f"[QualityScorer] {quality.format_report()}"
+            )
+
+            # Stopping criteria evaluation (Day 49) — logged for transparency
+            stopping = research_stopping_criteria.evaluate(
+                tasks=tasks,
+                evidence=all_evidence,
+                sources=sources,
+                confidence_score=report.confidence,
+                fact_checks=fact_check_results,
+                adaptive_round=0,
+            )
+            logger.info(f"[StoppingCriteria] {research_stopping_criteria.summary_line(stopping)}")
+
+            # Orchestrator pipeline summary (Day 46)
+            pipeline_summary = research_agent_orchestrator.get_pipeline_summary(job.id)
+
+            # 7. Completion
             job.report_id = report.id
             job.status = ResearchStatus.COMPLETED
             job.checkpoint_phase = "completed"
@@ -212,14 +243,21 @@ class ResearchOrchestrator:
                 REPORT_COMPLETED,
                 job_id=job.id,
                 message="Report completed.",
-                data={"report_id": report.id, "report": report.model_dump(mode="json")},
+                data={
+                    "report_id": report.id,
+                    "report": report.model_dump(mode="json"),
+                    "quality_score": quality_dict,
+                    "stopping_criteria": stopping.to_dict(),
+                    "pipeline_summary": pipeline_summary,
+                },
             )
 
             yield {
                 "event": "report_ready",
                 "data": {
                     "job": job.model_dump(mode="json"),
-                    "report": report.model_dump(mode="json")
+                    "report": report.model_dump(mode="json"),
+                    "quality_score": quality_dict,
                 }
             }
         except Exception as exc:
