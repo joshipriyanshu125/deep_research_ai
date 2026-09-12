@@ -105,8 +105,11 @@ class LongTermMemory:
             rec_text = f"{record.topic} {record.query} {record.summary}"
             rec_tokens = set(tokenize(rec_text))
             if q_tokens and rec_tokens:
-                overlap = len(q_tokens & rec_tokens) / len(q_tokens)
+                overlap = len(q_tokens & rec_tokens) / max(len(q_tokens | rec_tokens), 1)
                 score += 0.30 * overlap
+
+            if not q_tokens and not rec_tokens:
+                score = 0.0
 
             if score >= min_similarity:
                 scored_records.append((record, score))

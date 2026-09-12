@@ -20,6 +20,9 @@ Features:
 
 import asyncio
 import hashlib
+import re
+from collections import Counter
+
 import numpy as np
 import httpx
 from functools import lru_cache
@@ -40,17 +43,46 @@ _CACHE_MAX_SIZE = 1024       # max entries in the in-process LRU cache
 # Deterministic Fallback (always available — no API key required)
 # ---------------------------------------------------------------------------
 
+_TOKEN_RE = re.compile(r"[a-z0-9]+")
+_STOPWORDS = {
+    "the", "and", "for", "in", "of", "to", "by", "a", "an", "is", "are", "was", "were",
+    "be", "been", "being", "with", "on", "at", "from", "as", "it", "its", "this", "that",
+    "these", "those", "into", "over", "under", "after", "before", "between", "through", "during",
+}
+
+
+def _tokenize(text: str) -> List[str]:
+    return [token for token in _TOKEN_RE.findall((text or "").lower()) if len(token) > 1 and token not in _STOPWORDS]
+
+
 def _deterministic_embedding(text: str, dim: int = EMBEDDING_DIM) -> List[float]:
     """
-    Produce a reproducible, unit-normalized pseudo-embedding from text.
-    Uses SHA-256 seeding so the same text always yields the same vector.
-    Semantically meaningless but structurally correct for testing.
+    Produce a stable, token-aware pseudo-embedding so text with shared terms
+    remains semantically aligned even without an external embedding model.
     """
-    seed = int(hashlib.sha256(text.encode("utf-8")).hexdigest(), 16) % (2 ** 32)
-    rng = np.random.default_rng(seed)
-    vec = rng.standard_normal(dim).astype(np.float32)
-    norm = np.linalg.norm(vec)
-    return (vec / (norm + 1e-9)).tolist()
+    tokens = _tokenize(text)
+    if not tokens:
+        seed = int(hashlib.sha256(text.encode("utf-8")).hexdigest(), 16) % (2 ** 32)
+        rng = np.random.default_rng(seed)
+        vec = rng.standard_normal(dim).astype(np.float32)
+        norm = np.linalg.norm(vec)
+        return (vec / (norm + 1e-9)).tolist()
+
+    counts = Counter(tokens)
+    vec = np.zeros(dim, dtype=np.float32)
+    for token, count in counts.items():
+        seed = int(hashlib.sha256(token.encode("utf-8")).hexdigest(), 16)
+        idx = seed % dim
+        vec[idx] += float(count)
+        vec[(seed >> 7) % dim] += float(count) * 0.5
+        vec[(seed >> 13) % dim] += float(count) * 0.25
+
+    if not np.any(vec):
+        seed = int(hashlib.sha256(text.encode("utf-8")).hexdigest(), 16) % (2 ** 32)
+        rng = np.random.default_rng(seed)
+        vec = rng.standard_normal(dim).astype(np.float32)
+
+    return _normalize(vec.tolist())
 
 
 def _normalize(vec: List[float]) -> List[float]:

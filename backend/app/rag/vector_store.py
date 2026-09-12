@@ -261,10 +261,22 @@ class VectorStore:
     def _matches_filter(doc: Dict[str, Any], filter_by: Dict[str, Any]) -> bool:
         """Check if a document matches all filter criteria."""
         meta = doc.get("metadata") or {}
-        for key, value in filter_by.items():
-            # Check top-level first, then metadata
-            doc_val = doc.get(key) or meta.get(key)
-            if doc_val != value:
+        for key, expected in filter_by.items():
+            candidates = []
+            for source in (doc, meta):
+                if isinstance(source, dict):
+                    candidates.append(source.get(key))
+                    if key in source:
+                        candidates.append(source[key])
+                    nested_key = key.replace("_", "")
+                    for nested_name in (nested_key, key.lower(), key.upper()):
+                        if nested_name in source:
+                            candidates.append(source[nested_name])
+            doc_val = next((v for v in candidates if v is not None), None)
+            if isinstance(expected, str) and isinstance(doc_val, str):
+                if doc_val.lower() != expected.lower():
+                    return False
+            elif doc_val != expected:
                 return False
         return True
 

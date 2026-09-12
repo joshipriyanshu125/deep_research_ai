@@ -68,8 +68,19 @@ class ContradictionDetector:
             if len(shared_tokens) < 2 or candidate.claim.strip().lower() == claim.strip().lower():
                 continue
 
+            candidate_numbers = self._numbers(candidate.claim)
             candidate_polarity = self._polarity(candidate.claim)
-            numeric_conflict = bool(claim_numbers and self._numbers(candidate.claim) and claim_numbers != self._numbers(candidate.claim))
+            aligned_trend = bool(claim_polarity and candidate_polarity and claim_polarity == candidate_polarity)
+            if aligned_trend and not candidate.verification_status in ("disputed", "refuted"):
+                continue
+
+            numeric_conflict = bool(
+                claim_numbers
+                and candidate_numbers
+                and claim_polarity
+                and candidate_polarity
+                and claim_polarity != candidate_polarity
+            )
             polarity_conflict = claim_polarity and candidate_polarity and claim_polarity != candidate_polarity
             if not (numeric_conflict or polarity_conflict or candidate.verification_status in ("disputed", "refuted")):
                 continue

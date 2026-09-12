@@ -22,6 +22,7 @@ from typing import List, Dict, Any, Optional, Set, AsyncGenerator, Callable
 from app.database.models.research import ResearchTask
 from app.database.models.source import Source
 from app.agents.research_agent import research_agent
+from app.research.events import TASK_STARTED, TASK_COMPLETED, SEARCH_COMPLETED, SOURCE_FOUND, research_event_bus
 from app.utils.logger import logger
 
 
@@ -64,6 +65,12 @@ class ParallelResearchExecutor:
         async def _run_bounded_task(t: ResearchTask) -> List[Source]:
             async with semaphore:
                 try:
+                    research_event_bus.emit(
+                        TASK_STARTED,
+                        job_id=research_id,
+                        message=f"Starting task: {t.query}",
+                        data={"task_id": t.id, "task": t.model_dump(mode="json")},
+                    )
                     sources = await research_agent.process_task(t, research_id)
                     if on_task_complete:
                         try:
@@ -72,11 +79,23 @@ class ParallelResearchExecutor:
                                 await cb_res
                         except Exception as cb_err:
                             logger.warning(f"Error in on_task_complete callback: {cb_err}")
+                    research_event_bus.emit(
+                        TASK_COMPLETED,
+                        job_id=research_id,
+                        message=f"Task completed: {t.query}",
+                        data={"task_id": t.id, "task": t.model_dump(mode="json"), "source_count": len(sources)},
+                    )
                     return sources
                 except Exception as task_err:
                     logger.error(f"Unhandled error in task execution '{t.query}': {task_err}")
                     t.status = "failed"
                     t.error_message = str(task_err)
+                    research_event_bus.emit(
+                        TASK_COMPLETED,
+                        job_id=research_id,
+                        message=f"Task failed: {t.query}",
+                        data={"task_id": t.id, "task": t.model_dump(mode="json"), "error": str(task_err)},
+                    )
                     return []
 
         # Execute all tasks in parallel
@@ -102,6 +121,12 @@ class ParallelResearchExecutor:
                     if hash_key:
                         seen_hashes.add(hash_key)
                     all_sources.append(s)
+                    research_event_bus.emit(
+                        SOURCE_FOUND,
+                        job_id=research_id,
+                        message=f"Found source: {s.title or s.url or 'new source'}",
+                        data={"source": s.model_dump(mode="json") if hasattr(s, "model_dump") else s.__dict__},
+                    )
             elif isinstance(res, Exception):
                 logger.error(f"Task exception in parallel gather: {res}")
 
@@ -129,6 +154,12 @@ class ParallelResearchExecutor:
             f"Parallel execution completed in {total_wall_ms:.1f}ms "
             f"(sequential estimate: {sum_task_ms:.1f}ms, parallel speedup: {speedup}x). "
             f"Gathered {len(all_sources)} unique sources."
+        )
+        research_event_bus.emit(
+            SEARCH_COMPLETED,
+            job_id=research_id,
+            message=f"Found {len(all_sources)} sources.",
+            data={"source_count": len(all_sources), "execution_stats": self.last_execution_stats},
         )
 
         return all_sources
