@@ -11,6 +11,8 @@ from app.database.mongodb import connect_to_mongo, close_mongo_connection
 from app.workers.research_worker import research_worker
 from app.middleware.logging import RequestLoggingMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
+from app.security.headers import SecureHeadersMiddleware
+from app.security.request_size import RequestSizeLimitMiddleware
 
 # API Routers
 from app.api.auth import router as auth_router
@@ -51,8 +53,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(SecureHeadersMiddleware)
+app.add_middleware(RequestSizeLimitMiddleware, max_size_bytes=10 * 1024 * 1024)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(RateLimitMiddleware, max_requests=300, window_seconds=60)
+
 
 # Include Routers with API Prefix
 api_prefix = settings.API_V1_STR

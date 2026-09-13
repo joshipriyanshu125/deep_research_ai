@@ -39,6 +39,17 @@ from app.research.quality_scorer import (
     ResearchQualityScorer,
     research_quality_scorer,
 )
+from app.research.hallucination import (
+    HallucinationDetector,
+    HallucinationAuditItem,
+    HallucinationAuditReport,
+    hallucination_detector,
+)
+from app.research.citation_coverage import (
+    CitationCoverageAuditor,
+    CitationCoverageReport,
+    citation_coverage_auditor,
+)
 
 __all__ = [
     # Day 1–45 existing
@@ -66,5 +77,15 @@ __all__ = [
     "ResearchQualityScore",
     "ResearchQualityScorer",
     "research_quality_scorer",
+    # Day 51 — Hallucination Detection
+    "HallucinationDetector",
+    "HallucinationAuditItem",
+    "HallucinationAuditReport",
+    "hallucination_detector",
+    # Day 52 — Citation Coverage
+    "CitationCoverageAuditor",
+    "CitationCoverageReport",
+    "citation_coverage_auditor",
 ]
+
 

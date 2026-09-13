@@ -8,6 +8,8 @@ from typing import Optional, Dict, Any
 from dataclasses import dataclass, field
 import httpx
 from app.utils.logger import logger
+from app.security.ssrf import ssrf_protector, SSRFValidationError
+
 
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -35,12 +37,20 @@ class WebScraper:
     """
     Resilient web scraper that fetches HTML or PDF documents,
     handles network errors and HTTP codes gracefully, and never raises exceptions.
+    Enhanced with Day 55 SSRF protection and response size caps.
     """
 
-    def __init__(self, default_timeout: float = 15.0):
+    def __init__(self, default_timeout: float = 15.0, enforce_ssrf: bool = False, max_response_size: int = 10 * 1024 * 1024):
         self.default_timeout = default_timeout
+        self.enforce_ssrf = enforce_ssrf
+        self.max_response_size = max_response_size
 
-    async def fetch(self, url: str, timeout: Optional[float] = None) -> FetchResponse:
+    async def fetch(
+        self,
+        url: str,
+        timeout: Optional[float] = None,
+        enforce_ssrf: Optional[bool] = None,
+    ) -> FetchResponse:
         """
         Fetch content from a URL with rich error classification.
         Returns a FetchResponse object and never raises an exception.
@@ -52,7 +62,22 @@ class WebScraper:
         if not url.startswith(("http://", "https://")):
             url = "https://" + url
 
+        # Day 55 SSRF Protection check
+        check_ssrf = self.enforce_ssrf if enforce_ssrf is None else enforce_ssrf
+        if check_ssrf:
+            try:
+                url = ssrf_protector.validate_url(url)
+            except SSRFValidationError as e:
+                logger.warning(f"SSRF violation blocked for {url}: {e}")
+                return FetchResponse(
+                    url=url,
+                    status_code=400,
+                    success=False,
+                    error=f"SSRF Blocked: {e}",
+                )
+
         t = timeout or self.default_timeout
+
         headers = {
             "User-Agent": random.choice(USER_AGENTS),
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,application/pdf,*/*;q=0.8",
@@ -127,5 +152,10 @@ class WebScraper:
         res = await self.fetch(url)
         return res.text if res.success and not res.is_pdf else None
 
+    async def fetch_secure(self, url: str, timeout: Optional[float] = None) -> FetchResponse:
+        """Enforces Day 55 SSRF safety checks before fetching."""
+        return await self.fetch(url, timeout=timeout, enforce_ssrf=True)
+
 
 web_scraper = WebScraper()
+
