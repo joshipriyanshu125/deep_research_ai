@@ -9,8 +9,23 @@ from app.database.models.user import UserInDB
 from app.services.research_service import research_service
 from app.middleware.auth import get_current_user
 from app.research.events import research_event_bus
+from app.database.models.comparison import ResearchComparison, ResearchComparisonRequest
+from app.services.comparison_service import comparison_service
 
 router = APIRouter(prefix="/research", tags=["Research"])
+
+
+@router.post("/compare", response_model=ResearchComparison)
+async def compare_research_runs(
+    request: ResearchComparisonRequest,
+    current_user: Optional[UserInDB] = Depends(get_current_user),
+):
+    comparison = await comparison_service.compare(request.run_a_id, request.run_b_id)
+    if current_user and comparison.run_a_id and comparison.run_b_id:
+        run_a = await research_service.get_job_status(comparison.run_a_id)
+        if run_a.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Research run access denied")
+    return comparison
 
 @router.get("", response_model=List[ResearchJob])
 @router.get("/", response_model=List[ResearchJob], include_in_schema=False)

@@ -47,6 +47,14 @@ async def init_db_collections(db: AsyncIOMotorDatabase):
         await tasks_col.create_index([("id", ASCENDING)], unique=True, sparse=True)
         await tasks_col.create_index([("research_id", ASCENDING), ("status", ASCENDING)])
 
+        if "organization_members" not in existing_collections:
+            await db.create_collection("organization_members")
+        members_col = db["organization_members"]
+        await members_col.create_index(
+            [("organization_id", ASCENDING), ("user_id", ASCENDING)], unique=True
+        )
+        await members_col.create_index([("user_id", ASCENDING)])
+
         logger.info("MongoDB collections and indexes initialized successfully.")
     except Exception as e:
         logger.warning(f"Collection/index initialization notice: {e}")

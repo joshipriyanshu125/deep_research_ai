@@ -1,7 +1,7 @@
 import asyncio
 from typing import List, Dict, Any
 from app.utils.logger import logger
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 
 
 class NewsSearchEngine:
