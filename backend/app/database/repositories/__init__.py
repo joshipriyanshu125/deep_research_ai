@@ -7,6 +7,7 @@ from app.database.repositories.task_repo import TaskRepository, task_repo
 from app.database.repositories.source_repo import SourceRepository, source_repo
 from app.database.repositories.evidence_repo import EvidenceRepository, evidence_repo
 from app.database.repositories.report_repo import ReportRepository, report_repo
+from app.database.repositories.scheduled_research_repo import ScheduledResearchRepository, scheduled_research_repo
 
 __all__ = [
     "UserRepository",
@@ -21,5 +22,7 @@ __all__ = [
     "evidence_repo",
     "ReportRepository",
     "report_repo",
+    "ScheduledResearchRepository",
+    "scheduled_research_repo",
 ]
 

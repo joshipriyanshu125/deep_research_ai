@@ -27,16 +27,21 @@ from app.api.conversations import router as conversations_router
 from app.api.exports import router as exports_router
 from app.api.notifications import router as notifications_router
 from app.api.organizations import router as organizations_router
+from app.services.scheduled_research_service import scheduled_research_service
+from app.api.scheduled_research import router as scheduled_research_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     await connect_to_mongo()
     worker_task = asyncio.create_task(research_worker.start_worker())
+    scheduler_task = asyncio.create_task(scheduled_research_service.start_scheduler_loop(poll_interval_seconds=60))
     yield
     # Shutdown
     research_worker.is_running = False
     worker_task.cancel()
+    scheduled_research_service.stop_scheduler_loop()
+    scheduler_task.cancel()
     await close_mongo_connection()
 
 
@@ -75,6 +80,7 @@ app.include_router(conversations_router, prefix=api_prefix)
 app.include_router(exports_router, prefix=api_prefix)
 app.include_router(notifications_router, prefix=api_prefix)
 app.include_router(organizations_router, prefix=api_prefix)
+app.include_router(scheduled_research_router, prefix=api_prefix)
 
 
 @app.get("/health")
