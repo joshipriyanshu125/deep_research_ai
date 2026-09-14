@@ -23,6 +23,7 @@ class NotificationEventType(str, Enum):
     RESEARCH_STARTED = "research_started"
     RESEARCH_COMPLETED = "research_completed"
     RESEARCH_FAILED = "research_failed"
+    SCHEDULED_RESEARCH_COMPLETED = "scheduled_research_completed"
 
 
 class InAppNotification(BaseModel):

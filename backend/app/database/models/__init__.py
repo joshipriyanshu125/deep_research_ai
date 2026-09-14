@@ -16,6 +16,13 @@ from app.database.models.task import (
     TaskBulkCreateRequest, TaskStatsResponse,
 )
 
+from app.database.models.scheduled_research import (
+    ScheduledResearch,
+    ScheduledResearchCreate,
+    ScheduledResearchUpdate,
+    ScheduledChangeReport,
+)
+
 __all__ = [
     "UserBase", "UserCreate", "UserInDB", "UserResponse", "UserRole",
     "Source", "ResearchSource", "SourceType", "ProcessedSearchResult",
@@ -25,4 +32,5 @@ __all__ = [
     "ResearchTaskRecord", "TaskStatus", "TaskType",
     "TaskCreateRequest", "TaskUpdateRequest", "TaskStatusTransitionRequest",
     "TaskBulkCreateRequest", "TaskStatsResponse",
+    "ScheduledResearch", "ScheduledResearchCreate", "ScheduledResearchUpdate", "ScheduledChangeReport",
 ]

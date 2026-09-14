@@ -1,7 +1,13 @@
 import asyncio
 from typing import List, Dict, Any
 from app.utils.logger import logger
-from duckduckgo_search import DDGS
+import warnings
+warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*duckduckgo_search.*")
+warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*renamed to.*")
+try:
+    from ddgs import DDGS
+except ImportError:
+    from duckduckgo_search import DDGS
 
 
 class NewsSearchEngine:
