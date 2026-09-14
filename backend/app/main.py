@@ -26,12 +26,9 @@ from app.api.tasks import router as tasks_router  # Day 11 — Task Management
 from app.api.conversations import router as conversations_router
 from app.api.exports import router as exports_router
 from app.api.notifications import router as notifications_router
-<<<<<<< HEAD
+from app.api.organizations import router as organizations_router
 from app.services.scheduled_research_service import scheduled_research_service
 from app.api.scheduled_research import router as scheduled_research_router
-=======
-from app.api.organizations import router as organizations_router
->>>>>>> d234d21 (Add research comparison and organization support)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -82,11 +79,8 @@ app.include_router(tasks_router, prefix=api_prefix)  # Day 11
 app.include_router(conversations_router, prefix=api_prefix)
 app.include_router(exports_router, prefix=api_prefix)
 app.include_router(notifications_router, prefix=api_prefix)
-<<<<<<< HEAD
-app.include_router(scheduled_research_router, prefix=api_prefix)
-=======
 app.include_router(organizations_router, prefix=api_prefix)
->>>>>>> d234d21 (Add research comparison and organization support)
+app.include_router(scheduled_research_router, prefix=api_prefix)
 
 
 @app.get("/health")
