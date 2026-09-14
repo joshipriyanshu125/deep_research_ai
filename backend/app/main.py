@@ -24,7 +24,7 @@ from app.api.history import router as history_router
 from app.api.admin import router as admin_router
 from app.api.tasks import router as tasks_router  # Day 11 — Task Management
 from app.api.conversations import router as conversations_router
-
+from app.api.exports import router as exports_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -70,6 +70,7 @@ app.include_router(history_router, prefix=api_prefix)
 app.include_router(admin_router, prefix=api_prefix)
 app.include_router(tasks_router, prefix=api_prefix)  # Day 11
 app.include_router(conversations_router, prefix=api_prefix)
+app.include_router(exports_router, prefix=api_prefix)
 
 
 @app.get("/health")
