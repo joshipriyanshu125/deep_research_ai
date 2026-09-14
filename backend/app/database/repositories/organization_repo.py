@@ -1,6 +1,6 @@
 from typing import Dict, List, Optional
 
-from app.database.models.organization import Organization, OrganizationMember
+from app.database.models.organization import Organization, OrganizationMember, Team, TeamMember
 from app.database.mongodb import db_manager
 
 
@@ -8,6 +8,8 @@ class OrganizationRepository:
     def __init__(self):
         self._organizations: Dict[str, Organization] = {}
         self._members: Dict[str, OrganizationMember] = {}
+        self._teams: Dict[str, Team] = {}
+        self._team_members: Dict[str, TeamMember] = {}
 
     async def create_organization(self, organization: Organization) -> Organization:
         if db_manager.is_connected:
@@ -86,6 +88,71 @@ class OrganizationRepository:
             return False
         self._members.pop(member.id, None)
         return True
+
+    # Teams CRUD
+    async def create_team(self, team: Team) -> Team:
+        if db_manager.is_connected:
+            await db_manager.db.teams.insert_one(team.model_dump())
+        else:
+            self._teams[team.id] = team
+        return team
+
+    async def get_team(self, team_id: str) -> Optional[Team]:
+        if db_manager.is_connected:
+            doc = await db_manager.db.teams.find_one({"id": team_id})
+            return Team(**doc) if doc else None
+        return self._teams.get(team_id)
+
+    async def list_teams(self, organization_id: str) -> List[Team]:
+        if db_manager.is_connected:
+            cursor = db_manager.db.teams.find({"organization_id": organization_id})
+            return [Team(**doc) async for doc in cursor]
+        return [t for t in self._teams.values() if t.organization_id == organization_id]
+
+    async def delete_team(self, team_id: str) -> bool:
+        if db_manager.is_connected:
+            result = await db_manager.db.teams.delete_one({"id": team_id})
+            await db_manager.db.team_members.delete_many({"team_id": team_id})
+            return result.deleted_count > 0
+        if team_id in self._teams:
+            del self._teams[team_id]
+            self._team_members = {k: v for k, v in self._team_members.items() if v.team_id != team_id}
+            return True
+        return False
+
+    # Team Members CRUD
+    async def add_team_member(self, member: TeamMember) -> TeamMember:
+        if db_manager.is_connected:
+            await db_manager.db.team_members.update_one(
+                {"team_id": member.team_id, "user_id": member.user_id},
+                {"$set": member.model_dump()},
+                upsert=True,
+            )
+        else:
+            self._team_members[member.id] = member
+        return member
+
+    async def get_team_member(self, team_id: str, user_id: str) -> Optional[TeamMember]:
+        if db_manager.is_connected:
+            doc = await db_manager.db.team_members.find_one({"team_id": team_id, "user_id": user_id})
+            return TeamMember(**doc) if doc else None
+        return next((tm for tm in self._team_members.values() if tm.team_id == team_id and tm.user_id == user_id), None)
+
+    async def list_team_members(self, team_id: str) -> List[TeamMember]:
+        if db_manager.is_connected:
+            cursor = db_manager.db.team_members.find({"team_id": team_id})
+            return [TeamMember(**doc) async for doc in cursor]
+        return [tm for tm in self._team_members.values() if tm.team_id == team_id]
+
+    async def remove_team_member(self, team_id: str, user_id: str) -> bool:
+        if db_manager.is_connected:
+            result = await db_manager.db.team_members.delete_one({"team_id": team_id, "user_id": user_id})
+            return result.deleted_count > 0
+        member = await self.get_team_member(team_id, user_id)
+        if member:
+            self._team_members.pop(member.id, None)
+            return True
+        return False
 
 
 organization_repo = OrganizationRepository()

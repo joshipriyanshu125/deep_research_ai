@@ -8,6 +8,10 @@ try:
     from ddgs import DDGS
 except ImportError:
     from duckduckgo_search import DDGS
+<<<<<<< HEAD
+=======
+
+>>>>>>> 45f8659 (Few Fixes in the Research comparison & Team/organization support)
 
 
 class NewsSearchEngine:

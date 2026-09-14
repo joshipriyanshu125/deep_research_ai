@@ -60,23 +60,37 @@ class ComparisonService:
             + [fact.claim for fact in report_b.fact_checks]
         )
         added_claims, removed_claims = _difference(claims_a, claims_b)
-        new_opportunities, _ = _difference(report_a.opportunities, report_b.opportunities)
-        new_risks, _ = _difference(report_a.risks, report_b.risks)
-        _, market_removed = _difference(
-            [report_a.market_analysis or ""],
-            [report_b.market_analysis or ""],
-        )
-        changed_market_estimates = [
-            statement for statement in [report_b.market_analysis or ""]
-            if statement and _NUMBER_PATTERN.search(statement)
-        ] if market_removed else []
+
+        # Opportunities and Risks diff
+        raw_new_opps, _ = _difference(report_a.opportunities or [], report_b.opportunities or [])
+        claim_opps = _classify_claims(added_claims, _OPPORTUNITY_TERMS)
+        new_opportunities = _clean_values(list(set(raw_new_opps + claim_opps)))
+
+        raw_new_risks, _ = _difference(report_a.risks or [], report_b.risks or [])
+        claim_risks = _classify_claims(added_claims, _RISK_TERMS)
+        new_risks = _clean_values(list(set(raw_new_risks + claim_risks)))
+
+        # Companies & Regulations
+        company_claims = _classify_claims(added_claims, _COMPANY_TERMS)
+        reg_claims = _classify_claims(added_claims, _REGULATION_TERMS)
+
+        # Market Estimates
+        market_a = report_a.market_analysis or ""
+        market_b = report_b.market_analysis or ""
+        changed_market_estimates = []
+        if market_b and market_a != market_b:
+            numbers = _NUMBER_PATTERN.findall(market_b)
+            if numbers:
+                changed_market_estimates = [market_b.strip()]
+            else:
+                changed_market_estimates = _classify_claims(added_claims, ("market", "estimate", "cagr", "valuation", "billion", "million", "$", "%"))
 
         return ResearchComparison(
             run_a_id=run_a_id,
             run_b_id=run_b_id,
             query=run_b.query,
-            new_companies=_classify_claims(added_claims, _COMPANY_TERMS),
-            new_regulations=_classify_claims(added_claims, _REGULATION_TERMS),
+            new_companies=company_claims,
+            new_regulations=reg_claims,
             changed_market_estimates=changed_market_estimates,
             new_risks=new_risks,
             new_opportunities=new_opportunities,
