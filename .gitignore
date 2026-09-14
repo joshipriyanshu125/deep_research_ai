@@ -57,11 +57,7 @@ backend/env/
 # Python cache
 __pycache__/
 **/__pycache__/
-
 *.py[cod]
-*.pyc
-*.pyo
-*.pyd
 *$py.class
 
 # Python testing
@@ -97,10 +93,16 @@ build/
 coverage/
 *.lcov
 .nyc_output/
-
 .coverage
 .coverage.*
 htmlcov/
+
+# Local / generated test results
+test_results_prior.txt
+test_results_*.txt
+test-output/
+test-results/
+test-results-*.json
 
 
 # ============================================================
@@ -122,7 +124,6 @@ lerna-debug.log*
 # ============================================================
 
 report.*.json
-
 pids/
 *.pid
 *.seed
@@ -141,7 +142,6 @@ out/
 .nuxt/
 .output/
 .svelte-kit/
-
 .vuepress/dist
 
 .temp/
@@ -165,7 +165,6 @@ lib-cov/
 
 *.tgz
 .npm
-
 .eslintcache
 .stylelintcache
 
@@ -222,7 +221,7 @@ generated/
 output/
 
 # Only ignore root-level reports directory.
-# Do NOT ignore backend/app/reports/.
+# Do NOT ignore backend/app/reports.
 
 /reports/
 
@@ -270,10 +269,6 @@ Desktop.ini
 tmp/
 temp/
 
-*.tmp
-*.temp
-*.swp
-*.swo
 *.backup
 *.old
 
