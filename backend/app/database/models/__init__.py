@@ -22,6 +22,15 @@ from app.database.models.scheduled_research import (
     ScheduledResearchUpdate,
     ScheduledChangeReport,
 )
+from app.database.models.api_key import (
+    APIKey,
+    APIKeyCreate,
+    APIKeyResponse,
+    APIKeySecretResponse,
+    APIUsageRecord,
+    APIUsageSummary,
+    APIKeyScope,
+)
 
 __all__ = [
     "UserBase", "UserCreate", "UserInDB", "UserResponse", "UserRole",
@@ -33,4 +42,5 @@ __all__ = [
     "TaskCreateRequest", "TaskUpdateRequest", "TaskStatusTransitionRequest",
     "TaskBulkCreateRequest", "TaskStatsResponse",
     "ScheduledResearch", "ScheduledResearchCreate", "ScheduledResearchUpdate", "ScheduledChangeReport",
+    "APIKey", "APIKeyCreate", "APIKeyResponse", "APIKeySecretResponse", "APIUsageRecord", "APIUsageSummary", "APIKeyScope",
 ]

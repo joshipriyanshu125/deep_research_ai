@@ -1,19 +1,21 @@
 """
 Centralized LLM Service — the single gateway between agents and model providers.
 
-All LLM interactions MUST flow through this service.  Agents call semantic
+All LLM interactions MUST flow through this service. Agents call semantic
 methods (generate, chat, summarize, extract, classify) instead of reaching
 into provider internals.
 
 Architecture:
-    Agent  →  LLMService  →  BaseLLMProvider (OpenAI / Mock / future models)
+    Agent  →  LLMService  →  ModelRouter / BaseLLMProvider (OpenAI / Mock / future models)
 """
 
 import json
-from typing import Any, Dict, List, Optional, Type, TypeVar, Union
+import time
+from typing import Any, Dict, List, Optional, Type, TypeVar, Union, Tuple
 
 from app.config.settings import settings
-from app.llm.provider import BaseLLMProvider
+from app.llm.provider import BaseLLMProvider, MockLLMProvider
+from app.llm.router import model_router, ModelRouter, RoutingDecision, RoutingStrategy, TaskComplexity
 from app.utils.logger import logger
 
 T = TypeVar("T")
@@ -22,13 +24,19 @@ T = TypeVar("T")
 class LLMService:
     """High-level, provider-agnostic façade for every LLM interaction."""
 
-    def __init__(self, provider: Optional[BaseLLMProvider] = None):
+    def __init__(
+        self,
+        provider: Optional[BaseLLMProvider] = None,
+        router: Optional[ModelRouter] = None
+    ):
         if provider is not None:
             self._provider = provider
         else:
             # Lazy import to avoid circular dependency
             from app.llm.openai import get_llm_provider
             self._provider = get_llm_provider()
+
+        self._router = router or model_router
 
     # ------------------------------------------------------------------ #
     #  Core primitives
@@ -38,6 +46,11 @@ class LLMService:
     def provider(self) -> BaseLLMProvider:
         """Expose the underlying provider (useful for advanced / escape-hatch usage)."""
         return self._provider
+
+    @property
+    def router(self) -> ModelRouter:
+        """Expose the model router."""
+        return self._router
 
     async def generate(
         self,
@@ -73,6 +86,101 @@ class LLMService:
             )
         except Exception as e:
             logger.error(f"LLMService.generate_json failed: {e}")
+            raise
+
+    # ------------------------------------------------------------------ #
+    #  Intelligent Multi-Model Routed Execution (Day 82–84)
+    # ------------------------------------------------------------------ #
+
+    async def generate_routed(
+        self,
+        prompt: str,
+        *,
+        system_prompt: Optional[str] = None,
+        task_hint: Optional[str] = None,
+        strategy: RoutingStrategy = RoutingStrategy.BALANCED,
+        temperature: float = 0.7,
+        max_tokens: int = 4000,
+        preferred_provider: Optional[str] = None,
+        max_budget_usd: Optional[float] = None
+    ) -> Tuple[str, RoutingDecision]:
+        """
+        Executes text generation by intelligently routing through ModelRouter.
+        Returns a tuple of (generated_text, routing_decision).
+        """
+        start_t = time.perf_counter()
+        decision = self._router.route(
+            prompt=prompt,
+            system_prompt=system_prompt,
+            task_hint=task_hint,
+            strategy=strategy,
+            preferred_provider=preferred_provider,
+            max_budget_usd=max_budget_usd
+        )
+
+        logger.info(f"[ModelRouter] {decision.routing_reason}")
+
+        try:
+            result = await self.generate(
+                prompt,
+                system_prompt=system_prompt,
+                temperature=temperature,
+                max_tokens=max_tokens
+            )
+            elapsed_ms = (time.perf_counter() - start_t) * 1000.0
+            self._router.record_success(decision.selected_model, latency_ms=elapsed_ms)
+            return result, decision
+        except Exception as e:
+            self._router.record_failure(decision.selected_model, error=str(e))
+            logger.warning(f"Primary model {decision.selected_model} failed. Falling back to chain {decision.fallback_chain}")
+            # Try fallback chain
+            for fb_model in decision.fallback_chain:
+                try:
+                    logger.info(f"Retrying with fallback model: {fb_model}")
+                    result = await MockLLMProvider().generate_text(
+                        prompt, system_prompt=system_prompt, temperature=temperature, max_tokens=max_tokens
+                    )
+                    self._router.record_success(fb_model)
+                    return result, decision
+                except Exception as fb_err:
+                    self._router.record_failure(fb_model, error=str(fb_err))
+                    continue
+            raise
+
+    async def generate_json_routed(
+        self,
+        prompt: str,
+        *,
+        system_prompt: Optional[str] = None,
+        task_hint: Optional[str] = None,
+        strategy: RoutingStrategy = RoutingStrategy.BALANCED
+    ) -> Tuple[str, RoutingDecision]:
+        """
+        Executes JSON generation routed through ModelRouter.
+        """
+        start_t = time.perf_counter()
+        decision = self._router.route(
+            prompt=prompt,
+            system_prompt=system_prompt,
+            task_hint=task_hint or "json_extraction",
+            strategy=strategy
+        )
+
+        try:
+            result = await self.generate_json(prompt, system_prompt=system_prompt)
+            elapsed_ms = (time.perf_counter() - start_t) * 1000.0
+            self._router.record_success(decision.selected_model, latency_ms=elapsed_ms)
+            return result, decision
+        except Exception as e:
+            self._router.record_failure(decision.selected_model, error=str(e))
+            for fb_model in decision.fallback_chain:
+                try:
+                    result = await MockLLMProvider().generate_structured_json(prompt, system_prompt=system_prompt)
+                    self._router.record_success(fb_model)
+                    return result, decision
+                except Exception as fb_err:
+                    self._router.record_failure(fb_model, error=str(fb_err))
+                    continue
             raise
 
     # ------------------------------------------------------------------ #
@@ -255,9 +363,12 @@ class LLMService:
 #  Module-level singleton (preferred import for most consumers)
 # ------------------------------------------------------------------ #
 
-def get_llm_service(provider: Optional[BaseLLMProvider] = None) -> LLMService:
-    """Factory that returns an LLMService, optionally with a custom provider."""
-    return LLMService(provider=provider)
+def get_llm_service(
+    provider: Optional[BaseLLMProvider] = None,
+    router: Optional[ModelRouter] = None
+) -> LLMService:
+    """Factory that returns an LLMService, optionally with a custom provider or router."""
+    return LLMService(provider=provider, router=router)
 
 
 # Default singleton — import this everywhere:
