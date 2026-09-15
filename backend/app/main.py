@@ -30,6 +30,7 @@ from app.services.scheduled_research_service import scheduled_research_service
 from app.api.scheduled_research import router as scheduled_research_router
 from app.api.organizations import router as organizations_router
 from app.api.v1_platform import router as v1_platform_router  # Day 79–81 — API Platform
+from app.api.memory import router as memory_router  # Day 85–90 — Memory & Knowledge Graph
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -82,6 +83,7 @@ app.include_router(exports_router, prefix=api_prefix)
 app.include_router(notifications_router, prefix=api_prefix)
 app.include_router(scheduled_research_router, prefix=api_prefix)
 app.include_router(organizations_router, prefix=api_prefix)
+app.include_router(memory_router, prefix=api_prefix)  # Day 85–90
 app.include_router(v1_platform_router, prefix="/v1")  # Day 79–81: POST /v1/research, GET /v1/usage, etc.
 
 
