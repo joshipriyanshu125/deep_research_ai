@@ -10,6 +10,7 @@ bower_components/
 .pnp.*
 .pnp.js
 .pnp.cjs
+
 .yarn/*
 !.yarn/patches
 !.yarn/plugins
@@ -25,10 +26,6 @@ bower_components/
 .env
 .env.*
 !.env.example
-
-**/.env
-**/.env.*
-!**/.env.example
 
 secrets/
 credentials/
@@ -54,7 +51,6 @@ backend/env/
 
 # Python cache
 __pycache__/
-**/__pycache__/
 *.py[cod]
 *$py.class
 
@@ -93,7 +89,6 @@ coverage/
 .nyc_output/
 .coverage
 .coverage.*
-
 htmlcov/
 
 # Local / generated test results
@@ -110,7 +105,6 @@ test-results-*.json
 
 logs/
 *.log
-
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -136,18 +130,15 @@ pids/
 dist/
 build/
 out/
-
 .next/
 .nuxt/
 .output/
 .svelte-kit/
 .vuepress/dist
-
 .temp/
 .cache/
 .parcel-cache/
 .vite/
-
 *.tsbuildinfo
 build/Release
 
@@ -163,7 +154,6 @@ lib-cov/
 .node_repl_history
 *.tgz
 .npm
-
 .eslintcache
 .stylelintcache
 
@@ -179,7 +169,6 @@ lib-cov/
 .firebase/
 .tern-port
 .vscode-test
-
 **/.vitepress/dist
 **/.vitepress/cache
 
@@ -196,13 +185,11 @@ vite.config.ts.timestamp-*
 # DATABASE / LOCAL DATA
 # ============================================================
 
-# Ignore only root-level local data directories.
-# IMPORTANT:
-# backend/app/database/ remains tracked.
+# Root-level local data directories
+/data/
+/database/
 
- /data/
- /database/
-
+# Local SQLite/database files
 *.sqlite
 *.sqlite3
 *.db
@@ -220,10 +207,7 @@ uploads/
 generated/
 output/
 
-# Ignore only root-level reports directory.
-# IMPORTANT:
-# backend/app/reports/ remains tracked.
-
+# Root-level reports directory
 /reports/
 
 *.generated.*
@@ -236,7 +220,6 @@ output/
 
 .vscode/
 .idea/
-
 *.iml
 *.suo
 *.user
@@ -256,8 +239,8 @@ output/
 # ============================================================
 
 .DS_Store
-.DS_Store?
 ._*
+
 Thumbs.db
 ehthumbs.db
 Desktop.ini
@@ -269,7 +252,6 @@ Desktop.ini
 
 tmp/
 temp/
-
 *.backup
 *.old
 
@@ -316,7 +298,6 @@ temp/
 # ============================================================
 
 .ipynb_checkpoints/
-**/.ipynb_checkpoints/
 
 
 # ============================================================
