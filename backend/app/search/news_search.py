@@ -2,8 +2,9 @@ import asyncio
 from typing import List, Dict, Any
 from app.utils.logger import logger
 import warnings
-warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*duckduckgo_search.*")
-warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*renamed to.*")
+warnings.filterwarnings("ignore", message=".*duckduckgo_search.*")
+warnings.filterwarnings("ignore", message=".*renamed to.*")
+warnings.filterwarnings("ignore", message=".*ddgs.*")
 try:
     from ddgs import DDGS
 except ImportError:

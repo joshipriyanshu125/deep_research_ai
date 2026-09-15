@@ -11,8 +11,11 @@ from app.middleware.auth import get_current_user
 from app.research.events import research_event_bus
 from app.database.models.comparison import ResearchComparison, ResearchComparisonRequest
 from app.services.comparison_service import comparison_service
+# Day 91–95 — Advanced Research Modes
+from app.research.research_modes import list_modes
 
 router = APIRouter(prefix="/research", tags=["Research"])
+
 
 
 @router.post("/compare", response_model=ResearchComparison)
@@ -43,7 +46,19 @@ async def start_research(
     return job
 
 
+# Day 91–95 — Advanced Research Modes
+@router.get("/modes", summary="List all available research modes")
+async def list_research_modes():
+    """
+    Return configuration details for all four research modes:
+    quick, standard, deep, expert.
+    Clients can use this to populate a mode-selector UI component.
+    """
+    return {"modes": list_modes()}
+
+
 @router.get("/{job_id}", response_model=ResearchJob)
+
 async def get_research_status(job_id: str):
     return await research_service.get_job_status(job_id)
 

@@ -41,11 +41,13 @@ class ResearchPlan(BaseModel):
 
 class ResearchRequest(BaseModel):
     query: str
-    depth: int = Field(default=2, ge=1, le=5)
-    breadth: int = Field(default=3, ge=1, le=8)
-    categories: List[str] = Field(default=["web", "academic", "market"])
+    depth: Optional[int] = Field(default=None, ge=1, le=5)
+    breadth: Optional[int] = Field(default=None, ge=1, le=8)
+    categories: Optional[List[str]] = None
     llm_provider: Optional[str] = None
     custom_instructions: Optional[str] = None
+    # Day 91–95 — Advanced Research Modes
+    research_mode: Optional[str] = "standard"  # quick | standard | deep | expert
 
 
 class FollowUpRequest(BaseModel):
@@ -73,3 +75,5 @@ class ResearchJob(BaseModel):
     checkpoint_phase: str = "pending"
     checkpoint_data: Dict[str, Any] = Field(default_factory=dict)
     parent_research_id: Optional[str] = None
+    # Day 91–95 — Advanced Research Modes
+    research_mode: Optional[str] = "standard"  # quick | standard | deep | expert
