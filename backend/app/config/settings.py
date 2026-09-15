@@ -48,19 +48,57 @@ class Settings(BaseSettings):
     MAX_SEARCH_DEPTH: int = 3
     MAX_SEARCH_BREADTH: int = 5
 
+    # Redis & Distributed Queue (Day 96–100)
+    REDIS_URL: Optional[str] = None
+    REDIS_HOST: str = "localhost"
+    REDIS_PORT: int = 6379
+    REDIS_PASSWORD: Optional[str] = None
+    REDIS_DB: int = 0
+    USE_REDIS: bool = False
+
+    # Vector DB (Day 96–100)
+    VECTOR_DB_TYPE: str = "in_memory"  # in_memory, qdrant, chroma
+    VECTOR_DB_URL: Optional[str] = "http://localhost:6333"
+    VECTOR_DB_API_KEY: Optional[str] = None
+    VECTOR_DB_COLLECTION: str = "deep_research_embeddings"
+
+    # Logging & Observability (Day 96–100)
+    LOG_FORMAT: str = "text"  # text, json
+    LOG_LEVEL: str = "INFO"
+    PROMETHEUS_METRICS_ENABLED: bool = True
+
+    # Workers & Scalability (Day 96–100)
+    WORKER_CONCURRENCY: int = 4
+    WORKER_POLL_INTERVAL_SECONDS: float = 2.0
+    WORKER_JOB_TIMEOUT_SECONDS: int = 1800
+
+    # JWT Authentication & Token Security
+    JWT_ACCESS_SECRET: Optional[str] = None
+    JWT_ACCESS_EXPIRES_IN: str = "15m"
+    JWT_REFRESH_SECRET: Optional[str] = None
+    JWT_REFRESH_EXPIRES_IN: str = "7d"
+
+    # Email & SMTP Service (Days 67–69)
+    SMTP_SERVER: Optional[str] = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: Optional[str] = ""
+    SMTP_PASSWORD: Optional[str] = ""
+    EMAIL_FROM: Optional[str] = "noreply@deepresearch.ai"
+
     # CORS
-    CORS_ORIGINS: List[str] = ["*"]
+    CORS_ORIGINS: Union[List[str], str] = ["*"]
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
     def parse_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:
         if isinstance(v, str):
-            if v.strip().startswith("[") and v.strip().endswith("]"):
+            v_str = v.strip().strip('"\'')
+            if v_str.startswith("[") and v_str.endswith("]"):
                 try:
-                    return json.loads(v)
+                    return json.loads(v_str)
                 except Exception:
                     pass
-            return [origin.strip() for origin in v.split(",") if origin.strip()]
+            return [origin.strip() for origin in v_str.split(",") if origin.strip()]
         return v
 
     model_config = SettingsConfigDict(

@@ -4,11 +4,50 @@ Resilient HTTP fetching layer with User-Agent rotation, Content-Type detection (
 status code classification (403, 404, 429, 503, timeout), and zero-crash error handling.
 """
 import random
+import re
 from typing import Optional, Dict, Any
 from dataclasses import dataclass, field
 import httpx
 from app.utils.logger import logger
 from app.security.ssrf import ssrf_protector, SSRFValidationError
+
+
+def _decode_response_bytes(content: bytes, content_type_header: str) -> str:
+    """
+    Safely decode HTTP response bytes to a string.
+    Priority: 1) charset from Content-Type header  2) chardet detection  3) utf-8  4) latin-1
+    Strips null bytes and replaces remaining un-decodable bytes.
+    """
+    if not content:
+        return ""
+
+    # 1. Try charset from Content-Type header (e.g. "text/html; charset=utf-8")
+    charset = None
+    m = re.search(r"charset=([\w-]+)", content_type_header or "", re.IGNORECASE)
+    if m:
+        charset = m.group(1).strip().lower()
+
+    # 2. Try chardet if charset not declared
+    if not charset:
+        try:
+            import chardet
+            detected = chardet.detect(content[:4096])
+            if detected and detected.get("confidence", 0) >= 0.7:
+                charset = detected["encoding"]
+        except Exception:
+            pass
+
+    # 3. Attempt decode with detected charset, then utf-8, then latin-1
+    for enc in filter(None, [charset, "utf-8", "latin-1"]):
+        try:
+            text = content.decode(enc, errors="replace")
+            # Strip null bytes
+            text = text.replace("\x00", "")
+            return text
+        except (LookupError, UnicodeDecodeError):
+            continue
+
+    return content.decode("latin-1", errors="replace").replace("\x00", "")
 
 
 USER_AGENTS = [
@@ -82,7 +121,7 @@ class WebScraper:
             "User-Agent": random.choice(USER_AGENTS),
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,application/pdf,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9",
-            "Accept-Encoding": "gzip, deflate, br",
+            "Accept-Encoding": "gzip, deflate",
             "DNT": "1",
             "Upgrade-Insecure-Requests": "1",
         }
@@ -103,10 +142,10 @@ class WebScraper:
                 if status == 200:
                     text_content = ""
                     if not is_pdf:
-                        try:
-                            text_content = res.text
-                        except Exception:
-                            text_content = res.content.decode("utf-8", errors="replace")
+                        # Robust charset-aware decoding — avoids binary garbage
+                        text_content = _decode_response_bytes(
+                            res.content, content_type
+                        )
 
                     return FetchResponse(
                         url=url,

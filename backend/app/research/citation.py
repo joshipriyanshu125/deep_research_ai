@@ -71,7 +71,11 @@ class CitationEngine:
 
             # Link relevant evidence if available
             ev_items = evidence_by_source.get(sid, [])
-            sample_quote = ev_items[0].quote if ev_items else (s.snippet or "")
+            raw_quote = ev_items[0].quote if ev_items else (s.snippet or "")
+            # Sanitize: cap at 220 chars and strip non-printable characters
+            sample_quote = "".join(c for c in (raw_quote or "") if c.isprintable() or c in "\n\t")[:220].strip()
+            if not sample_quote:
+                sample_quote = (s.snippet or "")[:220].strip()
             sample_claim = ev_items[0].claim if ev_items else None
             conf = ev_items[0].confidence if ev_items else getattr(s, "credibility_score", 0.90)
 

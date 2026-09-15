@@ -1,0 +1,157 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "title": "Deep Research AI — Production Overview",
+      "type": "row"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "reqps"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 1
+      },
+      "id": 2,
+      "title": "API Request Rate (req/sec)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(deep_research_api_requests_total[1m])",
+          "legendFormat": "{{method}} {{status}}"
+        }
+      ]
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 1
+      },
+      "id": 3,
+      "title": "API Request Latency (ms)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(deep_research_api_latency_ms_sum[1m]) / rate(deep_research_api_latency_ms_count[1m])",
+          "legendFormat": "Avg Latency"
+        }
+      ]
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 1
+      },
+      "id": 4,
+      "title": "Research Job Queue Depth",
+      "type": "gauge",
+      "targets": [
+        {
+          "expr": "deep_research_queue_size",
+          "legendFormat": "Queue Depth"
+        }
+      ]
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 9
+      },
+      "id": 5,
+      "title": "LLM Invocations & Errors",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(deep_research_llm_calls_total[1m])",
+          "legendFormat": "LLM Calls/sec"
+        },
+        {
+          "expr": "rate(deep_research_llm_errors_total[1m])",
+          "legendFormat": "LLM Errors/sec"
+        }
+      ]
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 9
+      },
+      "id": 6,
+      "title": "Worker Job Failures Total",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "deep_research_worker_failures_total",
+          "legendFormat": "Worker Failures"
+        }
+      ]
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["deep-research", "production"],
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "title": "Deep Research AI — Cluster Dashboard",
+  "uid": "deep-research-overview"
+}

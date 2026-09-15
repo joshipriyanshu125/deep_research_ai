@@ -1,4 +1,5 @@
 import json
+import re
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
 from app.config.settings import settings
@@ -33,21 +34,75 @@ class MockLLMProvider(BaseLLMProvider):
         temperature: float = 0.7,
         max_tokens: int = 4000
     ) -> str:
-        # High quality simulated AI responses when keys are absent
-        if "outline" in prompt.lower() or "plan" in prompt.lower():
+        prompt_lower = prompt.lower()
+        is_report = "report" in prompt_lower or "synthesize" in prompt_lower or "research subject:" in prompt_lower or "evidence" in prompt_lower
+        if not is_report and ("research plan" in prompt_lower or "create plan" in prompt_lower or "decompose" in prompt_lower):
             return (
                 "### Research Plan\n"
-                "1. Core Fundamentals & Historical Evolution\n"
-                "2. State-of-the-Art Benchmarks & Quantitative Metrics\n"
-                "3. Emerging Architectural Paradigms & Industry Adoption\n"
-                "4. Critical Limitations, Safety Vectors, & Risk Analysis\n"
-                "5. Strategic Outlook and Future Horizon"
+                "1. Core Market Fundamentals & Current Adoption Metrics\n"
+                "2. Segment Breakdown & Technology Architecture\n"
+                "3. Key Players, OEMs, and Supply Chain Ecosystem\n"
+                "4. Policy Frameworks, Subsidies, and Regulatory Drivers\n"
+                "5. Investment Opportunities, Financial Forecasts & Risk Vectors"
             )
-        return (
-            "Comprehensive empirical research demonstrates exponential progress across frontier AI architectures, "
-            "highlighting verifiable improvements in multi-step reasoning, test-time compute scaling, and autonomous "
-            "tool integration. Rigorous benchmarking confirms high fidelity across domain tasks."
-        )
+
+        # Extract topic/query from prompt if available
+        query_match = re.search(r"Research Subject:\s*([^\n\r]+)", prompt, re.IGNORECASE)
+        query = query_match.group(1).strip() if query_match else "Market Research and Investment Analysis"
+
+        # Check for evidence summary in prompt
+        evidence_lines = []
+        for line in prompt.splitlines():
+            line_str = line.strip()
+            if line_str.startswith("[") and ("Claim:" in line_str or "Quote:" in line_str):
+                evidence_lines.append(line_str)
+
+        report_lines = [
+            f"# Deep Research Report: {query}\n",
+            "## Executive Summary",
+            f"This comprehensive intelligence report provides an in-depth empirical analysis of **{query}**. "
+            "Integrating multi-source research across industry reports, regulatory filings, and market intelligence, "
+            "the findings outline current adoption trajectories, structural supply chain shifts, key competitive players, "
+            "and high-conviction investment opportunities alongside critical risk vectors.\n",
+            "## Market Overview & Current Sizing",
+            f"The ecosystem for {query} is undergoing rapid commercial transformation, driven by robust macro policy support, "
+            "surging consumer adoption, and aggressive manufacturing localization. Multi-vector empirical analysis demonstrates "
+            "significant scale-up across core segments, with compounding annual growth rates outpacing traditional benchmarks.\n",
+            "## Key Findings & Quantitative Breakdown",
+        ]
+
+        if evidence_lines:
+            for el in evidence_lines[:12]:
+                report_lines.append(f"- {el}")
+        else:
+            report_lines.extend([
+                f"- Exponential growth and high capital deployment observed across primary segments of {query}.",
+                "- Domestic localization and production-linked incentives are substantially reducing unit component costs.",
+                "- Government subsidy frameworks (PLI, PM E-DRIVE, concessional GST) provide strong downside protection.",
+                "- Infrastructure expansion and battery ecosystem development represent the primary bottlenecks and value drivers.",
+            ])
+
+        report_lines.extend([
+            "\n## Key Players & Competitive Landscape",
+            "Established OEMs and agile pure-play startups are competing aggressively across vehicle platforms, "
+            "battery pack assembly, and component localization. Tier-1 suppliers and battery gigafactory developers "
+            "are forming strategic joint ventures to secure long-term raw material supply and cell manufacturing capacity.\n",
+            "## Strategic Investment Opportunities",
+            "- **Component & Value-Chain Localization**: High margins in powertrain, wiring harnesses, power electronics, and battery management systems (BMS).",
+            "- **Battery Recycling & Second-Life Energy Storage**: Fast-growing sub-sector with high CAGR potential as first-generation vehicle battery packs retire.",
+            "- **Charging & Energy Infrastructure**: High-utilization charging hubs for commercial fleets and fast-charging corridors.",
+            "- **Fleet Electrification**: B2B delivery fleets and two-wheeler/three-wheeler urban mobility platforms offering recurring cashflows.\n",
+            "## Critical Risks & Challenges",
+            "- **Infrastructure & Grid Bottlenecks**: Public charging station density remains a key constraint outside tier-1 metros.",
+            "- **Raw Material Volatility**: Global supply chain dependencies for critical minerals (Lithium, Nickel, Cobalt).",
+            "- **Policy & Subsidy Transitions**: Evolving subsidy criteria and homologation standards require proactive regulatory compliance.\n",
+            "## Strategic Recommendations",
+            "- Focus capital allocation on defensible Tier-1 component manufacturing and specialized charging infrastructure.",
+            "- Form strategic alliances with domestic cell manufacturing gigafactories to mitigate supply chain volatility.",
+            "- Continuously monitor state-level EV policies and incentive phase-outs to optimize project economics.",
+        ])
+
+        return "\n".join(report_lines)
 
     async def generate_structured_json(
         self,

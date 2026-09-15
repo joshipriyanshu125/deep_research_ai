@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse
 
 from app.config.settings import settings
 from app.database.mongodb import connect_to_mongo, close_mongo_connection
+from app.services.redis_service import redis_service
 from app.workers.research_worker import research_worker
 from app.middleware.logging import RequestLoggingMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
@@ -31,11 +32,13 @@ from app.api.scheduled_research import router as scheduled_research_router
 from app.api.organizations import router as organizations_router
 from app.api.v1_platform import router as v1_platform_router  # Day 79–81 — API Platform
 from app.api.memory import router as memory_router  # Day 85–90 — Memory & Knowledge Graph
+from app.api.health import router as health_router  # Day 96–100 — Production Health & Metrics
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     await connect_to_mongo()
+    await redis_service.connect()
     worker_task = asyncio.create_task(research_worker.start_worker())
     scheduler_task = asyncio.create_task(scheduled_research_service.start_scheduler_loop(poll_interval_seconds=60))
     yield
@@ -44,6 +47,7 @@ async def lifespan(app: FastAPI):
     worker_task.cancel()
     scheduled_research_service.stop_scheduler_loop()
     scheduler_task.cancel()
+    await redis_service.disconnect()
     await close_mongo_connection()
 
 
@@ -85,17 +89,7 @@ app.include_router(scheduled_research_router, prefix=api_prefix)
 app.include_router(organizations_router, prefix=api_prefix)
 app.include_router(memory_router, prefix=api_prefix)  # Day 85–90
 app.include_router(v1_platform_router, prefix="/v1")  # Day 79–81: POST /v1/research, GET /v1/usage, etc.
-
-
-@app.get("/health")
-@app.get(f"{api_prefix}/health")
-async def health_check():
-    return {
-        "status": "healthy",
-        "service": settings.PROJECT_NAME,
-        "version": settings.VERSION,
-        "environment": settings.ENVIRONMENT
-    }
+app.include_router(health_router)  # Day 96–100: /health/live, /health/ready, /health, /metrics
 
 
 # Mount Static Frontend Files

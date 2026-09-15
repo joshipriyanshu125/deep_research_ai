@@ -70,25 +70,25 @@ class ContradictionDetector:
 
             candidate_numbers = self._numbers(candidate.claim)
             candidate_polarity = self._polarity(candidate.claim)
-            aligned_trend = bool(claim_polarity and candidate_polarity and claim_polarity == candidate_polarity)
-            if aligned_trend and not candidate.verification_status in ("disputed", "refuted"):
-                continue
 
+            is_disputed = candidate.verification_status in ("disputed", "refuted")
+            polarity_conflict = bool(claim_polarity and candidate_polarity and claim_polarity != candidate_polarity)
             numeric_conflict = bool(
                 claim_numbers
                 and candidate_numbers
-                and claim_polarity
-                and candidate_polarity
-                and claim_polarity != candidate_polarity
+                and claim_numbers != candidate_numbers
+                and polarity_conflict
             )
-            polarity_conflict = claim_polarity and candidate_polarity and claim_polarity != candidate_polarity
-            if not (numeric_conflict or polarity_conflict or candidate.verification_status in ("disputed", "refuted")):
+
+            if not (numeric_conflict or polarity_conflict or is_disputed):
                 continue
 
             cause = self._investigate_cause(claim, candidate.claim)
             findings.append(ContradictionFinding(claim, candidate.claim, cause))
+            if len(findings) >= 5:
+                break
 
-        return self._deduplicate(findings)
+        return self._deduplicate(findings)[:5]
 
     def _investigate_cause(self, left: str, right: str) -> str:
         causes = []

@@ -29,6 +29,7 @@ from app.llm.service import get_llm_service
 from app.llm.prompts import evidence_extraction_prompt
 from app.utils.logger import logger
 from app.utils.helpers import generate_uuid
+from app.scraping.text_normalizer import text_normalizer
 
 
 # ---------------------------------------------------------------------------
@@ -186,6 +187,9 @@ class HeuristicEvidenceExtractor:
         if len(sent) < 30 or len(sent) > 500:
             return None
 
+        if text_normalizer.is_corrupted_text(sent):
+            return None
+
         if _NOISE_LINE_PATTERNS.search(sent):
             return None
 
@@ -330,7 +334,10 @@ class EvidenceExtractor:
                 break
 
         if not evidence_list:
-            sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if len(s.strip()) > 35]
+            sentences = [
+                s.strip() for s in re.split(r"(?<=[.!?])\s+", text)
+                if len(s.strip()) > 35 and not text_normalizer.is_corrupted_text(s.strip())
+            ]
             for s in sentences[:3]:
                 ev = Evidence(
                     research_id=research_id,

@@ -1,0 +1,33 @@
+# Multi-stage production Dockerfile for Distributed Research Worker
+FROM python:3.11-slim AS builder
+
+WORKDIR /build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# Final runtime image
+FROM python:3.11-slim AS runner
+
+WORKDIR /app
+
+RUN groupadd -r appuser && useradd -r -g appuser -d /app appuser
+
+COPY --from=builder /install /usr/local
+COPY . .
+
+RUN chown -R appuser:appuser /app
+
+USER appuser
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    ENVIRONMENT=production \
+    DEBUG=False
+
+CMD ["python", "-m", "app.workers.distributed_worker"]

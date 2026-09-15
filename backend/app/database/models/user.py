@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional, List
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, model_validator
 from app.utils.helpers import generate_uuid, get_utc_now
 
 
@@ -14,6 +14,14 @@ class UserBase(BaseModel):
     full_name: Optional[str] = None
     role: str = UserRole.USER
     is_active: bool = True
+
+    @model_validator(mode="before")
+    @classmethod
+    def handle_name_aliases(cls, data):
+        if isinstance(data, dict):
+            if "name" in data and not data.get("full_name"):
+                data["full_name"] = data.get("name")
+        return data
 
 
 class UserCreate(UserBase):

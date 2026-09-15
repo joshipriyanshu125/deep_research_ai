@@ -67,12 +67,12 @@ class FactCheckerAgent:
                 if metric.lower() in clean_claim:
                     score += 0.20
 
-            if score >= 0.25:
+            if score >= 0.45:
                 scored_evidences.append((ev, score))
 
-        # Sort descending by match score
+        # Sort descending by match score, cap at 5 to reduce noise
         scored_evidences.sort(key=lambda x: x[1], reverse=True)
-        return [ev for ev, _ in scored_evidences]
+        return [ev for ev, _ in scored_evidences[:5]]
 
     def compare_sources(
         self,

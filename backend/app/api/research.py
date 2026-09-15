@@ -2,7 +2,7 @@ import json
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
-from app.database.models.research import ResearchJob, ResearchRequest, FollowUpRequest
+from app.database.models.research import ResearchJob, ResearchRequest, FollowUpRequest, ResearchStatus
 from app.database.repositories.research_repo import research_repo
 from app.database.repositories.report_repo import report_repo
 from app.database.models.user import UserInDB
@@ -36,7 +36,9 @@ async def list_research(limit: int = 50, current_user: Optional[UserInDB] = Depe
     return await research_service.list_user_jobs(current_user.id if current_user else "anonymous", limit)
 
 
-@router.post("/start", response_model=ResearchJob)
+@router.post("", response_model=ResearchJob)
+@router.post("/", response_model=ResearchJob, include_in_schema=False)
+@router.post("/start", response_model=ResearchJob, include_in_schema=False)
 async def start_research(
     request: ResearchRequest,
     current_user: Optional[UserInDB] = Depends(get_current_user)
@@ -84,6 +86,19 @@ async def follow_up_research(job_id: str, request: FollowUpRequest):
 async def resume_research(job_id: str):
     job = await research_service.get_job_status(job_id)
     return await research_service.resume_research(job)
+
+
+@router.post("/{job_id}/run", response_model=ResearchJob)
+@router.post("/{job_id}/start", response_model=ResearchJob)
+@router.post("/{job_id}/execute", response_model=ResearchJob)
+async def execute_existing_research(job_id: str):
+    job = await research_service.get_job_status(job_id)
+    if job.status == ResearchStatus.FAILED:
+        return await research_service.resume_research(job)
+    elif job.status == ResearchStatus.PENDING:
+        from app.workers.research_worker import research_worker
+        await research_worker.enqueue_job(job)
+    return job
 
 
 @router.get("/{job_id}/stream")

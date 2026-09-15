@@ -153,11 +153,23 @@ class ResearchOrchestrator:
 
             all_evidence = await research_repo.get_evidence_by_research(job.id)
             existing_evidence_source_ids = {e.source_id for e in all_evidence}
+            evidence_tasks = []
             for s in sources:
                 if s.id in existing_evidence_source_ids:
                     continue
-                evs = evidence_extractor.extract_evidence(s, job.id)
-                for ev in evs:
+                evidence_tasks.append(
+                    evidence_extractor.extract_evidence_async(
+                        s, job.id, topic=job.query, use_llm=True, max_evidence=10
+                    )
+                )
+
+            import asyncio as _asyncio
+            evidence_batch = await _asyncio.gather(*evidence_tasks, return_exceptions=True)
+            for result in evidence_batch:
+                if isinstance(result, Exception):
+                    logger.warning(f"Evidence extraction error: {result}")
+                    continue
+                for ev in (result or []):
                     await research_repo.add_evidence(ev)
                     if ev.id not in job.evidence_ids:
                         job.evidence_ids.append(ev.id)
@@ -165,7 +177,7 @@ class ResearchOrchestrator:
                     research_event_bus.emit(
                         EVIDENCE_FOUND,
                         job_id=job.id,
-                        message=f"Evidence found in source: {s.title or s.url or 'source'}",
+                        message=f"Evidence extracted",
                         data={"evidence": ev.model_dump(mode="json") if hasattr(ev, "model_dump") else ev.__dict__},
                     )
 

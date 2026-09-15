@@ -19,6 +19,46 @@ class TextNormalizer:
 
     _ZERO_WIDTH_CHARS = re.compile(r"[\u200B-\u200D\uFEFF\u200E\u200F\u00AD]")
     _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\uFFFD]")
+    _BINARY_JUNK = re.compile(r"[^\x20-\x7E\u00A0-\u00FF\u2010-\u2026\u20B9\u20AC\n\r\t]")
+
+    @staticmethod
+    def is_corrupted_text(text: str) -> bool:
+        """
+        Detects if text consists of raw compressed binary bytes, unprintable symbols,
+        or high-entropy gibberish. Aggressively rejects garbage so no corrupted
+        sentence ever reaches the evidence pool.
+        """
+        if not text or not isinstance(text, str):
+            return True
+        cleaned = text.strip()
+        if len(cleaned) < 10:
+            return True
+
+        # Must have at least 3 actual words
+        words = [w for w in cleaned.split() if len(w) >= 2]
+        if len(words) < 3:
+            return True
+
+        # Calculate ratio of valid alphanumeric / standard punctuation chars
+        valid_chars = sum(
+            1 for c in cleaned
+            if c.isalnum() or c.isspace() or c in ".,!?:;-\"'()[]/&%$\u20b9\u20ac#@+=*~_<>|\n\t"
+        )
+        ratio = valid_chars / max(len(cleaned), 1)
+        # Must be 80%+ clean chars (raised from 70%)
+        if ratio < 0.80:
+            return True
+
+        # Reject if 3+ consecutive non-standard / non-printable unicode symbols
+        if re.search(r"[^\w\s.,!?:;\-'\"()\[\]/&%$\u20b9\u20ac#@+=*~_<>|]{3,}", cleaned):
+            return True
+
+        # Reject if more than 15% non-ASCII characters (likely binary/encoding garbage)
+        non_ascii = sum(1 for c in cleaned if ord(c) > 127)
+        if non_ascii / max(len(cleaned), 1) > 0.15:
+            return True
+
+        return False
 
     def normalize(self, text: str) -> str:
         """

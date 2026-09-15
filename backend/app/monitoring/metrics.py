@@ -262,6 +262,67 @@ class MetricsCollector:
             "research_duration_ms": self.research_duration_ms.snapshot(),
         }
 
+    def to_prometheus_text(self) -> str:
+        """
+        Export all metrics in standard Prometheus exposition text format (version 0.0.4).
+        Compatible with Prometheus server scraping.
+        """
+        lines: List[str] = []
+        now = time.time()
+        uptime = round(now - self._start_time, 2)
+
+        # Uptime
+        lines.append("# HELP deep_research_uptime_seconds System uptime in seconds.")
+        lines.append("# TYPE deep_research_uptime_seconds gauge")
+        lines.append(f"deep_research_uptime_seconds {uptime}")
+
+        # API requests
+        lines.append("# HELP deep_research_api_requests_total Total HTTP requests handled.")
+        lines.append("# TYPE deep_research_api_requests_total counter")
+        api_snap = self.api_requests_total.snapshot()
+        lines.append(f"deep_research_api_requests_total {api_snap['total']}")
+        for label_str, count in api_snap.get("by_labels", {}).items():
+            # e.g. method=GET,path=/api/v1/research,status=200 -> method="GET",path="/api/v1/research",status="200"
+            parts = label_str.split(",")
+            prom_labels = ",".join(f'{k.strip()}="{v.strip()}"' for part in parts if "=" in part for k, v in [part.split("=", 1)])
+            lines.append(f"deep_research_api_requests_total{{{prom_labels}}} {count}")
+
+        # LLM calls
+        lines.append("# HELP deep_research_llm_calls_total Total LLM API invocations.")
+        lines.append("# TYPE deep_research_llm_calls_total counter")
+        llm_snap = self.llm_calls_total.snapshot()
+        lines.append(f"deep_research_llm_calls_total {llm_snap['total']}")
+        for label_str, count in llm_snap.get("by_labels", {}).items():
+            parts = label_str.split(",")
+            prom_labels = ",".join(f'{k.strip()}="{v.strip()}"' for part in parts if "=" in part for k, v in [part.split("=", 1)])
+            lines.append(f"deep_research_llm_calls_total{{{prom_labels}}} {count}")
+
+        # LLM errors
+        lines.append("# HELP deep_research_llm_errors_total Total LLM API error occurrences.")
+        lines.append("# TYPE deep_research_llm_errors_total counter")
+        llm_err_snap = self.llm_errors_total.snapshot()
+        lines.append(f"deep_research_llm_errors_total {llm_err_snap['total']}")
+
+        # Queue Size
+        lines.append("# HELP deep_research_queue_size Current research job queue depth.")
+        lines.append("# TYPE deep_research_queue_size gauge")
+        lines.append(f"deep_research_queue_size {self.queue_size.snapshot()}")
+
+        # Worker failures
+        lines.append("# HELP deep_research_worker_failures_total Total background worker job failures.")
+        lines.append("# TYPE deep_research_worker_failures_total counter")
+        lines.append(f"deep_research_worker_failures_total {self.worker_failures_total.snapshot()['total']}")
+
+        # Latency histograms
+        lines.append("# HELP deep_research_api_latency_ms API request latency in milliseconds.")
+        lines.append("# TYPE deep_research_api_latency_ms summary")
+        api_lat = self.api_latency_ms.snapshot()
+        lines.append(f"deep_research_api_latency_ms_count {api_lat['count']}")
+        lines.append(f"deep_research_api_latency_ms_sum {api_lat['sum']}")
+
+        lines.append("")
+        return "\n".join(lines)
+
     def reset(self) -> None:
         """Reset all metrics to zero (useful in tests)."""
         self.__init__()  # type: ignore[misc]

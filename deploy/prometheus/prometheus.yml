@@ -1,0 +1,31 @@
+# =================================================================
+# PROMETHEUS SCRAPING CONFIGURATION
+# =================================================================
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # 1. Deep Research API Server Cluster
+  - job_name: 'deep_research_api'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['api_1:8000', 'api_2:8000']
+        labels:
+          service: 'deep-research-api'
+          environment: 'production'
+
+  # 2. Redis Metrics (Optional sidecar / direct)
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']
+        labels:
+          service: 'deep-research-redis'
+
+  # 3. MongoDB Metrics
+  - job_name: 'mongodb'
+    static_configs:
+      - targets: ['mongodb:27017']
+        labels:
+          service: 'deep-research-mongo'

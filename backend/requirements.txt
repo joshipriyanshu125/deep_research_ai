@@ -21,3 +21,4 @@ markdown>=3.6
 pytest>=8.1.1
 pytest-asyncio>=0.23.6
 aiofiles>=23.2.1
+redis>=5.0.0

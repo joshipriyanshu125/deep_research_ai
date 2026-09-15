@@ -1,0 +1,240 @@
+version: '3.8'
+
+# =================================================================
+# PRODUCTION ARCHITECTURE - DEEP RESEARCH AI
+# Internet -> Load Balancer (Nginx) -> API Servers (2x) -> MongoDB / Redis / Vector DB
+#                                   -> Workers (2x)     -> Agent System -> External AI / Search APIs
+# =================================================================
+
+networks:
+  deep_research_net:
+    driver: bridge
+
+volumes:
+  mongo_data:
+    name: deep_research_mongo_data
+  redis_data:
+    name: deep_research_redis_data
+  qdrant_data:
+    name: deep_research_qdrant_data
+  prometheus_data:
+    name: deep_research_prometheus_data
+  grafana_data:
+    name: deep_research_grafana_data
+  nginx_logs:
+    name: deep_research_nginx_logs
+
+services:
+  # -----------------------------------------------------------------
+  # 1. REVERSE PROXY & LOAD BALANCER (Nginx with HTTPS)
+  # -----------------------------------------------------------------
+  nginx:
+    image: nginx:alpine
+    container_name: deep_research_nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/nginx/ssl:/etc/nginx/ssl:ro
+      - nginx_logs:/var/log/nginx
+      - ./frontend:/usr/share/nginx/html:ro
+    depends_on:
+      - api_1
+      - api_2
+    networks:
+      - deep_research_net
+    restart: always
+
+  # -----------------------------------------------------------------
+  # 2. LOAD-BALANCED API SERVERS
+  # -----------------------------------------------------------------
+  api_1:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: deep_research_api_1
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=False
+      - MONGODB_URL=mongodb://mongodb:27017
+      - MONGODB_DB_NAME=deep_research_ai
+      - USE_REDIS=True
+      - REDIS_URL=redis://redis:6379/0
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - VECTOR_DB_TYPE=qdrant
+      - VECTOR_DB_URL=http://qdrant:6333
+      - LOG_FORMAT=json
+      - PROMETHEUS_METRICS_ENABLED=True
+    env_file:
+      - .env.production
+    depends_on:
+      - mongodb
+      - redis
+      - qdrant
+    networks:
+      - deep_research_net
+    restart: always
+
+  api_2:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: deep_research_api_2
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=False
+      - MONGODB_URL=mongodb://mongodb:27017
+      - MONGODB_DB_NAME=deep_research_ai
+      - USE_REDIS=True
+      - REDIS_URL=redis://redis:6379/0
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - VECTOR_DB_TYPE=qdrant
+      - VECTOR_DB_URL=http://qdrant:6333
+      - LOG_FORMAT=json
+      - PROMETHEUS_METRICS_ENABLED=True
+    env_file:
+      - .env.production
+    depends_on:
+      - mongodb
+      - redis
+      - qdrant
+    networks:
+      - deep_research_net
+    restart: always
+
+  # -----------------------------------------------------------------
+  # 3. DISTRIBUTED AGENT WORKERS
+  # -----------------------------------------------------------------
+  worker_1:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    container_name: deep_research_worker_1
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=False
+      - MONGODB_URL=mongodb://mongodb:27017
+      - MONGODB_DB_NAME=deep_research_ai
+      - USE_REDIS=True
+      - REDIS_URL=redis://redis:6379/0
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - VECTOR_DB_TYPE=qdrant
+      - VECTOR_DB_URL=http://qdrant:6333
+      - WORKER_CONCURRENCY=4
+    env_file:
+      - .env.production
+    depends_on:
+      - mongodb
+      - redis
+      - qdrant
+    networks:
+      - deep_research_net
+    restart: always
+
+  worker_2:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    container_name: deep_research_worker_2
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=False
+      - MONGODB_URL=mongodb://mongodb:27017
+      - MONGODB_DB_NAME=deep_research_ai
+      - USE_REDIS=True
+      - REDIS_URL=redis://redis:6379/0
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - VECTOR_DB_TYPE=qdrant
+      - VECTOR_DB_URL=http://qdrant:6333
+      - WORKER_CONCURRENCY=4
+    env_file:
+      - .env.production
+    depends_on:
+      - mongodb
+      - redis
+      - qdrant
+    networks:
+      - deep_research_net
+    restart: always
+
+  # -----------------------------------------------------------------
+  # 4. PRIMARY DATABASE (MongoDB)
+  # -----------------------------------------------------------------
+  mongodb:
+    image: mongo:6.0
+    container_name: deep_research_mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - deep_research_net
+    command: ["mongod", "--wiredTigerCacheSizeGB", "1.5"]
+    restart: always
+
+  # -----------------------------------------------------------------
+  # 5. CACHE & QUEUE LAYER (Redis)
+  # -----------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: deep_research_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - deep_research_net
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "512mb", "--maxmemory-policy", "volatile-lru"]
+    restart: always
+
+  # -----------------------------------------------------------------
+  # 6. VECTOR DATABASE (Qdrant)
+  # -----------------------------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: deep_research_qdrant
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - deep_research_net
+    restart: always
+
+  # -----------------------------------------------------------------
+  # 7. MONITORING (Prometheus & Grafana)
+  # -----------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: deep_research_prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - deep_research_net
+    restart: always
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: deep_research_grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin_deep_research
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./deploy/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+    depends_on:
+      - prometheus
+    networks:
+      - deep_research_net
+    restart: always

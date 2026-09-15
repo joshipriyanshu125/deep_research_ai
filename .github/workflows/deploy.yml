@@ -1,0 +1,51 @@
+name: Production Deployment Pipeline
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    name: Build Containers & Validate Production Stack
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build API Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: false
+          tags: deep-research-api:latest
+
+      - name: Build Worker Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile.worker
+          push: false
+          tags: deep-research-worker:latest
+
+      - name: Generate Self-Signed Certificates for Staging Test
+        run: |
+          bash deploy/nginx/generate_ssl_certs.sh
+
+      - name: Prepare Staging .env.production
+        run: |
+          cp .env.production.example .env.production
+
+      - name: Validate Docker Compose Configuration
+        run: |
+          docker compose -f docker-compose.prod.yml config
+
+      - name: Deployment Verification Check
+        run: |
+          echo "Production Docker images and compose architecture verified successfully."

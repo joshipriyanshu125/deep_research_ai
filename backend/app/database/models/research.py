@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from app.utils.helpers import generate_uuid, get_utc_now
 
 
@@ -44,10 +44,23 @@ class ResearchRequest(BaseModel):
     depth: Optional[int] = Field(default=None, ge=1, le=5)
     breadth: Optional[int] = Field(default=None, ge=1, le=8)
     categories: Optional[List[str]] = None
+    tracks: Optional[Dict[str, Any]] = None
     llm_provider: Optional[str] = None
     custom_instructions: Optional[str] = None
     # Day 91–95 — Advanced Research Modes
     research_mode: Optional[str] = "standard"  # quick | standard | deep | expert
+
+    @model_validator(mode="before")
+    @classmethod
+    def handle_tracks_alias(cls, data):
+        if isinstance(data, dict):
+            if "tracks" in data and not data.get("categories"):
+                tracks = data.get("tracks")
+                if isinstance(tracks, dict):
+                    data["categories"] = [k for k, v in tracks.items() if v]
+                elif isinstance(tracks, list):
+                    data["categories"] = tracks
+        return data
 
 
 class FollowUpRequest(BaseModel):
