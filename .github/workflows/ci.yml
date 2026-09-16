@@ -51,6 +51,6 @@ jobs:
         env:
           MONGODB_URL: mongodb://localhost:27017
           MONGODB_DB_NAME: test_deep_research
+          PYTHONPATH: ./backend
         run: |
-          cd backend
           python scripts/init_production_db.py
