@@ -34,14 +34,7 @@ class NewsSearchEngine:
         except Exception as e:
             logger.warning(f"DDG news search fallback for '{query}': {e}")
 
-        return [
-            {
-                "title": f"Industry Update: Breakthroughs in {query}",
-                "url": f"https://techcrunch.com/news/{query.replace(' ', '-').lower()}",
-                "snippet": f"Market analysis and commercial roadmap milestones announced for {query}.",
-                "source_type": "news"
-            }
-        ]
+        return []
 
 
 news_search_engine = NewsSearchEngine()

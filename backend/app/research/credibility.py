@@ -119,6 +119,22 @@ class SourceCredibilityScorer:
         """
         Evaluate and return full credibility score breakdown for a single source.
         """
+        # 0. Check for generated placeholder / synthetic artifact
+        from app.research.source_validator import source_validator
+        is_ph, ph_reason = source_validator.is_placeholder(source)
+        if is_ph:
+            return CredibilityEvaluation(
+                overall_score=0.0,
+                tier="low",
+                authority_score=0.0,
+                recency_score=0.0,
+                relevance_score=0.0,
+                primary_source_score=0.0,
+                specificity_score=0.0,
+                agreement_score=0.0,
+                signals=[f"Rejected: {ph_reason}"],
+            )
+
         signals: List[str] = []
 
         # 1. Authority Score (30%)

@@ -294,14 +294,20 @@ class EvidenceExtractor:
         """
         Synchronous evidence extraction from a Source instance (backwards-compatible).
         Extracts relevant passages, extracts high-fidelity atomic evidence, and formulates claims.
+        Guarantees clean human-readable quotes and claims, with automatic fallback to snippet.
         """
-        text = source.clean_text or source.content or source.snippet or ""
-        if not text:
-            return []
-
         research_id = research_id or source.research_id
         source_id = source.source_id or source.id
         base_conf = getattr(source, "credibility_score", 0.90) or 0.90
+
+        # Prioritize clean text, but reject if corrupted
+        candidate_text = source.clean_text or source.content or ""
+        if text_normalizer.is_corrupted_text(candidate_text):
+            candidate_text = ""
+
+        text = candidate_text or source.snippet or ""
+        if not text:
+            return []
 
         passages = self.passage_extractor.segment_into_passages(text)
         if not passages:
@@ -324,6 +330,11 @@ class EvidenceExtractor:
                 source_title=source.title,
             )
             for ev in claims:
+                ev.claim = text_normalizer.sanitize_for_evidence(ev.claim)
+                ev.quote = text_normalizer.sanitize_for_evidence(ev.quote)
+                ev.evidence = ev.quote
+                if text_normalizer.is_corrupted_text(ev.claim) or text_normalizer.is_corrupted_text(ev.quote):
+                    continue
                 norm_claim = ev.claim.strip().lower()
                 if norm_claim not in seen_claims:
                     seen_claims.add(norm_claim)
@@ -333,12 +344,36 @@ class EvidenceExtractor:
             if len(evidence_list) >= max_evidence:
                 break
 
+        # If full text yielded no valid clean evidence, fall back to clean search snippet
+        if not evidence_list and source.snippet and source.snippet != text:
+            snippet_clean = text_normalizer.sanitize_for_evidence(source.snippet)
+            if not text_normalizer.is_corrupted_text(snippet_clean):
+                snippet_claims = self.heuristic_extractor.extract_from_passage(
+                    passage=snippet_clean,
+                    source_id=source_id,
+                    research_id=research_id,
+                    base_confidence=base_conf,
+                    sub_topic=source.title or topic,
+                    source_url=source.url,
+                    source_title=source.title,
+                )
+                for ev in snippet_claims:
+                    ev.claim = text_normalizer.sanitize_for_evidence(ev.claim)
+                    ev.quote = text_normalizer.sanitize_for_evidence(ev.quote)
+                    ev.evidence = ev.quote
+                    if not text_normalizer.is_corrupted_text(ev.claim) and not text_normalizer.is_corrupted_text(ev.quote):
+                        evidence_list.append(ev)
+
+        # Baseline fallback to clean sentences if still empty
         if not evidence_list:
             sentences = [
-                s.strip() for s in re.split(r"(?<=[.!?])\s+", text)
-                if len(s.strip()) > 35 and not text_normalizer.is_corrupted_text(s.strip())
+                text_normalizer.sanitize_for_evidence(s.strip())
+                for s in re.split(r"(?<=[.!?])\s+", text)
+                if len(s.strip()) > 35
             ]
-            for s in sentences[:3]:
+            for s in sentences:
+                if text_normalizer.is_corrupted_text(s):
+                    continue
                 ev = Evidence(
                     research_id=research_id,
                     source_id=source_id,
@@ -353,6 +388,8 @@ class EvidenceExtractor:
                     verification_status="verified",
                 )
                 evidence_list.append(ev)
+                if len(evidence_list) >= 3:
+                    break
 
         return evidence_list
 
@@ -366,15 +403,21 @@ class EvidenceExtractor:
     ) -> List[Evidence]:
         """
         Asynchronous evidence extraction with optional LLM reasoning and heuristic fallback.
+        Guarantees clean, non-corrupted human-readable quotes and claims.
         """
-        text = source.clean_text or source.content or source.snippet or ""
-        if not text:
-            return []
-
         research_id = research_id or source.research_id
         source_id = source.source_id or source.id
         base_conf = getattr(source, "credibility_score", 0.90) or 0.90
         sub_topic = source.title or topic or ""
+
+        # Prioritize clean text, but reject if corrupted
+        candidate_text = source.clean_text or source.content or ""
+        if text_normalizer.is_corrupted_text(candidate_text):
+            candidate_text = ""
+
+        text = candidate_text or source.snippet or ""
+        if not text:
+            return []
 
         passages = self.passage_extractor.segment_into_passages(text)
         ranked = self.passage_extractor.rank_passages(passages, topic=topic or source.query)
@@ -402,9 +445,12 @@ class EvidenceExtractor:
                 if parsed:
                     llm_evidence: List[Evidence] = []
                     for item in parsed:
-                        claim = item.get("claim", "").strip()
-                        quote = item.get("evidence", "").strip() or item.get("quote", "").strip() or claim
-                        if not claim:
+                        raw_claim = item.get("claim", "").strip()
+                        raw_quote = item.get("evidence", "").strip() or item.get("quote", "").strip() or raw_claim
+                        claim = text_normalizer.sanitize_for_evidence(raw_claim)
+                        quote = text_normalizer.sanitize_for_evidence(raw_quote)
+
+                        if not claim or text_normalizer.is_corrupted_text(claim) or text_normalizer.is_corrupted_text(quote):
                             continue
 
                         raw_conf = float(item.get("confidence", 0.90))

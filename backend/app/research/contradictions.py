@@ -2,7 +2,7 @@
 
 import re
 from dataclasses import dataclass
-from typing import List, Sequence
+from typing import List, Sequence, Set, Tuple, Optional, Union
 
 from app.database.models.evidence import Evidence
 
@@ -17,7 +17,18 @@ _NUMBER_PATTERN = re.compile(
 _TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
 _POSITIVE = {"increase", "increased", "growth", "grew", "rose", "risen", "expanded", "surged", "higher"}
 _NEGATIVE = {"decrease", "decreased", "decline", "declined", "fell", "dropped", "shrank", "collapsed", "lower"}
-_STOPWORDS = {"the", "and", "for", "in", "of", "to", "by", "a", "an", "is", "are"}
+_STOPWORDS = {"the", "and", "for", "in", "of", "to", "by", "a", "an", "is", "are", "on", "at", "with", "as"}
+
+# Distinct geographic regions / scopes that cannot contradict each other
+_GEO_REGIONS = {
+    "india": {"india", "indian", "delhi", "mumbai", "bengaluru", "siam", "pib", "niti", "fame", "emps"},
+    "canada": {"canada", "canadian", "quebec", "ontario", "vancouver", "toronto", "montreal"},
+    "usa": {"us", "usa", "united states", "america", "american", "california", "texas", "sec"},
+    "china": {"china", "chinese", "beijing", "shanghai", "byd"},
+    "europe": {"europe", "european", "eu", "germany", "german", "uk", "britain", "british", "france", "norway"},
+    "japan": {"japan", "japanese", "toyota", "nissan", "honda"},
+}
+
 _CAUSE_PATTERNS = {
     "different years": re.compile(r"\b(?:19|20)\d{2}\b"),
     "different definitions": re.compile(
@@ -54,22 +65,42 @@ class ContradictionDetector:
 
     def detect(
         self,
-        claim: str,
-        evidence: Sequence[Evidence],
+        claim: Union[str, Sequence[Evidence]],
+        evidence: Optional[Sequence[Evidence]] = None,
     ) -> List[ContradictionFinding]:
+        """
+        Detect contradictions for a single claim against an evidence sequence,
+        or across an entire evidence sequence when called as detect(all_evidence).
+        """
+        if isinstance(claim, (list, tuple)) and evidence is None:
+            return self.detect_all(claim)
+
+        if not isinstance(claim, str) or not evidence:
+            return []
+
         findings: List[ContradictionFinding] = []
         claim_tokens = self._tokens(claim)
         claim_numbers = self._numbers(claim)
         claim_polarity = self._polarity(claim)
+        claim_region = self._detect_region(claim)
 
         for candidate in evidence:
-            candidate_tokens = self._tokens(candidate.claim)
-            shared_tokens = claim_tokens.intersection(candidate_tokens)
-            if len(shared_tokens) < 2 or candidate.claim.strip().lower() == claim.strip().lower():
+            cand_claim = candidate.claim.strip()
+            if not cand_claim or cand_claim.lower() == claim.strip().lower():
                 continue
 
-            candidate_numbers = self._numbers(candidate.claim)
-            candidate_polarity = self._polarity(candidate.claim)
+            # Scope / Regional check: different regions cannot contradict
+            cand_region = self._detect_region(cand_claim)
+            if claim_region and cand_region and claim_region != cand_region:
+                continue
+
+            candidate_tokens = self._tokens(cand_claim)
+            shared_tokens = claim_tokens.intersection(candidate_tokens)
+            if len(shared_tokens) < 2:
+                continue
+
+            candidate_numbers = self._numbers(cand_claim)
+            candidate_polarity = self._polarity(cand_claim)
 
             is_disputed = candidate.verification_status in ("disputed", "refuted")
             polarity_conflict = bool(claim_polarity and candidate_polarity and claim_polarity != candidate_polarity)
@@ -83,12 +114,74 @@ class ContradictionDetector:
             if not (numeric_conflict or polarity_conflict or is_disputed):
                 continue
 
-            cause = self._investigate_cause(claim, candidate.claim)
-            findings.append(ContradictionFinding(claim, candidate.claim, cause))
+            cause = self._investigate_cause(claim, cand_claim)
+            findings.append(ContradictionFinding(claim, cand_claim, cause))
             if len(findings) >= 5:
                 break
 
         return self._deduplicate(findings)[:5]
+
+    def detect_all(self, evidence: Sequence[Evidence]) -> List[ContradictionFinding]:
+        """
+        Compares all pairs in the evidence sequence once, with global deduplication.
+        """
+        if not evidence or len(evidence) < 2:
+            return []
+
+        all_findings: List[ContradictionFinding] = []
+        n = len(evidence)
+        for i in range(n):
+            for j in range(i + 1, n):
+                claim_a = evidence[i].claim.strip()
+                claim_b = evidence[j].claim.strip()
+                if not claim_a or not claim_b or claim_a.lower() == claim_b.lower():
+                    continue
+
+                # Scope / Regional check
+                region_a = self._detect_region(claim_a)
+                region_b = self._detect_region(claim_b)
+                if region_a and region_b and region_a != region_b:
+                    continue
+
+                tokens_a = self._tokens(claim_a)
+                tokens_b = self._tokens(claim_b)
+                shared = tokens_a.intersection(tokens_b)
+                if len(shared) < 2:
+                    continue
+
+                polarity_a = self._polarity(claim_a)
+                polarity_b = self._polarity(claim_b)
+                numbers_a = self._numbers(claim_a)
+                numbers_b = self._numbers(claim_b)
+
+                is_disputed = (
+                    evidence[i].verification_status in ("disputed", "refuted")
+                    or evidence[j].verification_status in ("disputed", "refuted")
+                )
+                polarity_conflict = bool(polarity_a and polarity_b and polarity_a != polarity_b)
+                numeric_conflict = bool(
+                    numbers_a
+                    and numbers_b
+                    and numbers_a != numbers_b
+                    and polarity_conflict
+                )
+
+                if numeric_conflict or polarity_conflict or is_disputed:
+                    cause = self._investigate_cause(claim_a, claim_b)
+                    all_findings.append(ContradictionFinding(claim_a, claim_b, cause))
+                    if len(all_findings) >= 8:
+                        break
+            if len(all_findings) >= 8:
+                break
+
+        return self._deduplicate(all_findings)[:5]
+
+    def _detect_region(self, text: str) -> Optional[str]:
+        tokens = set(re.findall(r"[a-z]+", text.lower()))
+        for region_name, region_keywords in _GEO_REGIONS.items():
+            if tokens.intersection(region_keywords):
+                return region_name
+        return None
 
     def _investigate_cause(self, left: str, right: str) -> str:
         causes = []
@@ -104,14 +197,14 @@ class ContradictionDetector:
         return ", ".join(causes) if causes else "an unresolved difference in reported values or direction"
 
     @staticmethod
-    def _tokens(text: str) -> set[str]:
+    def _tokens(text: str) -> Set[str]:
         return {
             token for token in _TOKEN_PATTERN.findall(text.lower())
             if len(token) >= 2 and token not in _STOPWORDS
         }
 
     @staticmethod
-    def _numbers(text: str) -> set[str]:
+    def _numbers(text: str) -> Set[str]:
         return {number.lower().replace(",", "") for number in _NUMBER_PATTERN.findall(text)}
 
     @staticmethod
@@ -130,7 +223,7 @@ class ContradictionDetector:
         seen = set()
         unique = []
         for finding in findings:
-            key = tuple(sorted((finding.left_claim, finding.right_claim)))
+            key = tuple(sorted((finding.left_claim.strip().lower(), finding.right_claim.strip().lower())))
             if key not in seen:
                 seen.add(key)
                 unique.append(finding)

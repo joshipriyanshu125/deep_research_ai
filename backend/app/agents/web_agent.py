@@ -145,6 +145,9 @@ class DeepWebResearchAgent:
                 processed_item.publication_date = ext_data["date"]
 
             text_content = ext_data.get("text") or processed_item.snippet or ""
+            from app.scraping.text_normalizer import text_normalizer
+            if not text_content or text_normalizer.is_corrupted_text(text_content):
+                text_content = processed_item.snippet or ""
             author = ext_data.get("author")
 
             source = search_result_processor.to_source(
@@ -160,6 +163,10 @@ class DeepWebResearchAgent:
                 },
             )
             sources.append(source)
+
+        # 7.5 Pre-graph Source Validation: Reject placeholder / synthetic artifacts
+        from app.research.source_validator import source_validator
+        sources = source_validator.filter_valid_sources(sources)
 
         # 8. Score credibility across all 6 dimensions with cross-source agreement
         from app.research.credibility import source_credibility_scorer
@@ -181,7 +188,12 @@ class DeepWebResearchAgent:
             return {}
         async with self._semaphore:
             try:
-                return await content_extractor.extract_from_url(url)
+                extracted = await content_extractor.extract_from_url(url)
+                from app.scraping.text_normalizer import text_normalizer
+                text = extracted.get("text", "")
+                if not text or text_normalizer.is_corrupted_text(text):
+                    extracted["text"] = item.get("snippet", "")
+                return extracted
             except Exception as e:
                 logger.warning(f"Extraction error for {url}: {e}")
                 return {"text": item.get("snippet", ""), "title": item.get("title", "")}

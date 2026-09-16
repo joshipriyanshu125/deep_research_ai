@@ -15,11 +15,26 @@ from app.security.ssrf import ssrf_protector, SSRFValidationError
 def _decode_response_bytes(content: bytes, content_type_header: str) -> str:
     """
     Safely decode HTTP response bytes to a string.
-    Priority: 1) charset from Content-Type header  2) chardet detection  3) utf-8  4) latin-1
-    Strips null bytes and replaces remaining un-decodable bytes.
+    Decompresses gzip/zlib streams if needed.
+    Priority: 1) charset from Content-Type header  2) utf-8  3) chardet
+    Strips null bytes, control characters, and avoids decoding binary junk as text.
     """
     if not content:
         return ""
+
+    # Decompress if raw gzip/deflate bytes are returned
+    if content.startswith(b"\x1f\x8b"):
+        try:
+            import gzip
+            content = gzip.decompress(content)
+        except Exception:
+            pass
+    elif content.startswith(b"\x78\x9c") or content.startswith(b"\x78\x01"):
+        try:
+            import zlib
+            content = zlib.decompress(content)
+        except Exception:
+            pass
 
     # 1. Try charset from Content-Type header (e.g. "text/html; charset=utf-8")
     charset = None
@@ -27,7 +42,14 @@ def _decode_response_bytes(content: bytes, content_type_header: str) -> str:
     if m:
         charset = m.group(1).strip().lower()
 
-    # 2. Try chardet if charset not declared
+    # 2. Try utf-8 first (most web pages)
+    try:
+        text = content.decode("utf-8")
+        return text.replace("\x00", "")
+    except UnicodeDecodeError:
+        pass
+
+    # 3. Try detected or declared charset
     if not charset:
         try:
             import chardet
@@ -37,17 +59,16 @@ def _decode_response_bytes(content: bytes, content_type_header: str) -> str:
         except Exception:
             pass
 
-    # 3. Attempt decode with detected charset, then utf-8, then latin-1
-    for enc in filter(None, [charset, "utf-8", "latin-1"]):
+    if charset and charset.lower() not in ("utf-8", "utf8"):
         try:
-            text = content.decode(enc, errors="replace")
-            # Strip null bytes
-            text = text.replace("\x00", "")
-            return text
+            text = content.decode(charset, errors="replace")
+            return text.replace("\x00", "")
         except (LookupError, UnicodeDecodeError):
-            continue
+            pass
 
-    return content.decode("latin-1", errors="replace").replace("\x00", "")
+    # Fallback to utf-8 with replace
+    text = content.decode("utf-8", errors="replace").replace("\x00", "")
+    return text
 
 
 USER_AGENTS = [

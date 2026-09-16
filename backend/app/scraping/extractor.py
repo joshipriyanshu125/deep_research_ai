@@ -148,7 +148,9 @@ class ContentExtractor:
         if not extracted_text.strip() and meta.get("description"):
             extracted_text = meta["description"]
 
-        clean_text = text_normalizer.normalize(extracted_text)
+        clean_text = text_normalizer.sanitize_for_evidence(extracted_text)
+        if text_normalizer.is_corrupted_text(clean_text):
+            clean_text = ""
         success = bool(clean_text)
 
         title = meta.get("title") or ""

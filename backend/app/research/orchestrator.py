@@ -121,6 +121,8 @@ class ResearchOrchestrator:
             for source in sources:
                 unique_sources[source.id] = source
             sources = list(unique_sources.values())
+            from app.research.source_validator import source_validator
+            sources = source_validator.filter_valid_sources(sources)
             job.source_ids = [source.id for source in sources]
             job.checkpoint_data["source_ids"] = job.source_ids
             await research_repo.update_job(job)

@@ -104,7 +104,9 @@ class HTMLCleaner:
         raw_extracted_text = content_root.get_text(separator="\n")
 
         # 8. Run through comprehensive TextNormalizer (entities, encoding, whitespace, dedup)
-        normalized_text = text_normalizer.normalize(raw_extracted_text)
+        normalized_text = text_normalizer.sanitize_for_evidence(raw_extracted_text)
+        if text_normalizer.is_corrupted_text(normalized_text):
+            return ""
 
         return normalized_text
 

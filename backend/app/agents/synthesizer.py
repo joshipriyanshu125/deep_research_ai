@@ -288,13 +288,23 @@ class SynthesizerAgent:
     ) -> SynthesisResult:
         """Constructs rich, domain-grounded synthesis across the 7 output dimensions."""
         # 1. Key findings from high-confidence, clean evidence
+        from app.scraping.text_normalizer import text_normalizer
         key_findings = []
         if evidence:
             for ev in evidence:
-                claim = ev.claim.strip()
+                claim = text_normalizer.sanitize_for_evidence(ev.claim.strip())
+                if text_normalizer.is_corrupted_text(claim):
+                    continue
+                claim_lower = claim.lower()
                 # Skip short, noisy, or generic placeholders
-                if len(claim) > 35 and not claim.lower().startswith("market analysis and commercial"):
-                    if ev.confidence >= 0.30 and claim not in key_findings:
+                if (
+                    len(claim) > 25
+                    and not claim_lower.startswith("market analysis and commercial")
+                    and not claim_lower.startswith("industry update:")
+                    and not claim_lower.startswith("overview, architectural")
+                    and not claim_lower.startswith("state-of-the-art developments")
+                ):
+                    if ev.confidence >= 0.25 and claim not in key_findings:
                         key_findings.append(claim)
                 if len(key_findings) >= 6:
                     break
@@ -378,7 +388,9 @@ class SynthesizerAgent:
         if fact_checks:
             for fc in fact_checks:
                 if fc.contradictions:
-                    contradictions.extend(fc.contradictions[:2])
+                    for c in fc.contradictions:
+                        if c not in contradictions:
+                            contradictions.append(c)
         if not contradictions:
             for ev in evidence:
                 if ev.verification_status in ("disputed", "refuted"):
@@ -389,7 +401,7 @@ class SynthesizerAgent:
             contradictions = [
                 "Variations in market forecast CAGR estimates between conservative industry analyst reports and OEM expansion targets.",
             ]
-        contradictions = list(dict.fromkeys(contradictions))[:4]
+        contradictions = list(dict.fromkeys(contradictions))[:3]
 
         # 7. Uncertainty
         uncertainty = [

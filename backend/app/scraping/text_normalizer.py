@@ -19,14 +19,15 @@ class TextNormalizer:
 
     _ZERO_WIDTH_CHARS = re.compile(r"[\u200B-\u200D\uFEFF\u200E\u200F\u00AD]")
     _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\uFFFD]")
-    _BINARY_JUNK = re.compile(r"[^\x20-\x7E\u00A0-\u00FF\u2010-\u2026\u20B9\u20AC\n\r\t]")
+    _BINARY_JUNK = re.compile(r"[^\x20-\x7E\u00A0-\u00FF\u2010-\u2026\u20B9\u20AC\u00A3\u00A5\n\r\t]")
+    _ALLOWED_SYMBOLS = ".,!?:;-\"'()[]/&%$\u20b9\u20ac\u00a3\u00a5#@+=*~_<>|\n\t—–…°"
 
     @staticmethod
     def is_corrupted_text(text: str) -> bool:
         """
         Detects if text consists of raw compressed binary bytes, unprintable symbols,
-        or high-entropy gibberish. Aggressively rejects garbage so no corrupted
-        sentence ever reaches the evidence pool.
+        mojibake, or high-entropy gibberish. Rejects corrupted content so no garbled
+        text enters the evidence pool.
         """
         if not text or not isinstance(text, str):
             return True
@@ -34,31 +35,67 @@ class TextNormalizer:
         if len(cleaned) < 10:
             return True
 
-        # Must have at least 3 actual words
+        # Reject immediately if it contains replacement character '\uFFFD'
+        if "\ufffd" in cleaned:
+            return True
+
+        # Must have at least 2 actual words
         words = [w for w in cleaned.split() if len(w) >= 2]
-        if len(words) < 3:
+        if len(words) < 2:
             return True
 
         # Calculate ratio of valid alphanumeric / standard punctuation chars
         valid_chars = sum(
             1 for c in cleaned
-            if c.isalnum() or c.isspace() or c in ".,!?:;-\"'()[]/&%$\u20b9\u20ac#@+=*~_<>|\n\t"
+            if c.isalnum() or c.isspace() or c in TextNormalizer._ALLOWED_SYMBOLS
         )
         ratio = valid_chars / max(len(cleaned), 1)
-        # Must be 80%+ clean chars (raised from 70%)
-        if ratio < 0.80:
+        if ratio < 0.85:
             return True
 
         # Reject if 3+ consecutive non-standard / non-printable unicode symbols
-        if re.search(r"[^\w\s.,!?:;\-'\"()\[\]/&%$\u20b9\u20ac#@+=*~_<>|]{3,}", cleaned):
+        if re.search(r"[^\w\s.,!?:;\-'\"()\[\]/&%$\u20b9\u20ac\u00a3\u00a5#@+=*~_<>|—–…°]{3,}", cleaned):
             return True
 
-        # Reject if more than 15% non-ASCII characters (likely binary/encoding garbage)
-        non_ascii = sum(1 for c in cleaned if ord(c) > 127)
-        if non_ascii / max(len(cleaned), 1) > 0.15:
+        # Check for mojibake patterns (e.g. â€, Ã©, etc.)
+        if re.search(r"(?:â€|Ã¢|Ã©|Ã¨|Ã¯|Ã®|Ã¶|Ã¼|Ã±|â€™|â€œ|â€|ï¿½)", cleaned):
             return True
 
         return False
+
+    def sanitize_for_evidence(self, text: str) -> str:
+        """
+        Clean, normalize, and strip corruption artifacts from text for evidence quotes/claims.
+        Guarantees clean human-readable output.
+        """
+        if not text:
+            return ""
+
+        # Normalize via standard pipeline
+        cleaned = self.normalize(text)
+
+        # Remove replacement characters
+        cleaned = cleaned.replace("\ufffd", "").replace("", "")
+
+        # Common mojibake replacements
+        mojibake_map = {
+            "â€™": "'",
+            "â€œ": '"',
+            "â€": '"',
+            "â€\x9d": '"',
+            "â€“": "—",
+            "â€”": "—",
+            "Ã¢â‚¬â„¢": "'",
+            "Ã¢â‚¬Å“": '"',
+            "Ã¢â‚¬": '"',
+        }
+        for bad, good in mojibake_map.items():
+            cleaned = cleaned.replace(bad, good)
+
+        # Strip remaining control characters
+        cleaned = self._CONTROL_CHARS.sub("", cleaned)
+        cleaned = self.normalize_whitespace(cleaned)
+        return cleaned.strip()
 
     def normalize(self, text: str) -> str:
         """
