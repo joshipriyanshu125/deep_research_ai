@@ -6,7 +6,7 @@ import pytest
 import hmac
 import hashlib
 import json
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.database.models.notification import (
     NotificationChannel,
@@ -39,6 +39,21 @@ async def test_email_channel_simulation():
     )
     result = await email_channel.send(payload, recipient_email="test@example.com")
     assert result is True
+
+
+@pytest.mark.asyncio
+async def test_email_channel_requires_a_recipient_address():
+    payload = NotificationPayload(
+        event_type=NotificationEventType.RESEARCH_COMPLETED.value,
+        user_id="user_123",
+        research_id="res_001",
+        title="Research Completed",
+        message="Your report is ready.",
+    )
+
+    result = await email_channel.send(payload)
+
+    assert result is False
 
 
 @pytest.mark.asyncio
@@ -120,7 +135,19 @@ async def test_notification_service_dispatch():
         title="Research Started",
         message="Started query processing.",
     )
-    results = await notification_service.dispatch(payload)
+    registered_user = MagicMock(email="registered.user@example.org")
+    with patch(
+        "app.services.notification_service.user_repo.get_by_id",
+        new_callable=AsyncMock,
+        return_value=registered_user,
+    ), patch(
+        "app.services.notification_service.email_channel.send",
+        new_callable=AsyncMock,
+        return_value=True,
+    ) as mock_send:
+        results = await notification_service.dispatch(payload)
+
+    mock_send.assert_awaited_once_with(payload, recipient_email="registered.user@example.org")
     assert results[NotificationChannel.IN_APP.value] is True
     assert results[NotificationChannel.EMAIL.value] is True
     assert results[NotificationChannel.PUSH.value] is True

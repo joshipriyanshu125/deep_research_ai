@@ -171,7 +171,7 @@ class TestDeepWebResearchAgent:
         agent = DeepWebResearchAgent()
 
         # Return identical URL for both queries
-        shared_item = {"title": "Shared URL Item", "url": "https://example.com/same-url", "snippet": "Same snippet"}
+        shared_item = {"title": "Shared URL Item", "url": "https://pib.gov.in/same-url", "snippet": "Same snippet"}
 
         with patch("app.search.query_generator.query_generator.generate_queries", new_callable=AsyncMock) as mock_gen_q, \
              patch("app.search.web_search.web_search_engine.search", new_callable=AsyncMock) as mock_search, \
@@ -184,7 +184,7 @@ class TestDeepWebResearchAgent:
             sources = await agent.execute("Indian EV market", "res-123")
             # Should deduplicate to 1 source despite being returned by both queries
             assert len(sources) == 1
-            assert sources[0].url == "https://example.com/same-url"
+            assert sources[0].url == "https://pib.gov.in/same-url"
 
     @pytest.mark.asyncio
     async def test_is_market_routes_to_news_and_company_type(self):

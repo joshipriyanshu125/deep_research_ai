@@ -21,6 +21,7 @@ from app.notifications.channels.email import email_channel
 from app.notifications.channels.in_app import in_app_channel
 from app.notifications.channels.push import push_channel
 from app.notifications.channels.webhook import webhook_channel
+from app.database.repositories.user_repo import user_repo
 from app.research.events import (
     RESEARCH_STARTED,
     REPORT_COMPLETED,
@@ -53,7 +54,17 @@ class NotificationService:
 
         # 2. Email Notification
         try:
-            results[NotificationChannel.EMAIL.value] = await email_channel.send(payload)
+            user = await user_repo.get_by_id(payload.user_id)
+            if not user:
+                logger.warning(
+                    "[NotificationService] Skipping email notification because registered user "
+                    f"{payload.user_id} was not found."
+                )
+                results[NotificationChannel.EMAIL.value] = False
+            else:
+                results[NotificationChannel.EMAIL.value] = await email_channel.send(
+                    payload, recipient_email=user.email
+                )
         except Exception as exc:
             logger.error(f"[NotificationService] Email dispatch error: {exc}")
             results[NotificationChannel.EMAIL.value] = False

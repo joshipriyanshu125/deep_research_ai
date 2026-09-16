@@ -26,7 +26,13 @@ class EmailNotificationChannel:
 
     async def send(self, payload: NotificationPayload, recipient_email: Optional[str] = None) -> bool:
         """Send email notification."""
-        to_address = recipient_email or f"{payload.user_id}@deepresearch.ai"
+        to_address = (recipient_email or "").strip()
+        if not to_address:
+            logger.warning(
+                "[EmailChannel] Skipping email notification because no recipient address was provided "
+                f"for user {payload.user_id}."
+            )
+            return False
         subject = f"[{settings.PROJECT_NAME}] {payload.title}"
 
         html_body = f"""
