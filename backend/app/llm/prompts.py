@@ -34,10 +34,12 @@ class PromptConfig:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def format_user_prompt(self, **kwargs) -> str:
-        """Format the user template with provided keyword arguments."""
-        if not kwargs:
-            return self.user_template
-        return self.user_template.format(**kwargs)
+        """Format the user template while keeping optional prompt fields backward compatible."""
+        class _OptionalVariables(dict):
+            def __missing__(self, key: str) -> str:
+                return ""
+
+        return self.user_template.format_map(_OptionalVariables(**kwargs))
 
     def format_system_prompt(self, **kwargs) -> str:
         """Format the system prompt if dynamic variables are present."""
@@ -236,6 +238,8 @@ report_prompt = PromptConfig(
     max_tokens=4000,
     system_prompt="""You are an Executive Research Author.
 Synthesize deep, thorough, publication-grade research reports in Markdown.
+Write only about the research domain and the supplied evidence. Never discuss the AI system,
+its internal process, epistemic hallucinations, multi-agent exploration, or domain tooling.
 Structure requirements:
 1. # Title
 2. ## Executive Summary
@@ -247,6 +251,9 @@ Structure requirements:
 
 Cite evidence strictly using bracketed indices e.g. [1], [2] referencing the source pool.""",
     user_template="""Research Subject: {query}
+
+Structured Research Data (query, user_data, verified_evidence, contradictions, analysis):
+{research_data}
 
 Verified Evidence Pool:
 {evidence_summary}
@@ -269,6 +276,8 @@ synthesis_prompt = PromptConfig(
     max_tokens=3500,
     system_prompt="""You are a Lead Synthesis Agent and Principal Intelligence Strategist.
 Your task is to combine all gathered research (task results, extracted evidence, authoritative sources, and context) into a comprehensive, multi-dimensional intelligence synthesis.
+Use only supplied domain evidence. Never mention the AI system, epistemic hallucinations,
+multi-agent exploration, or domain tooling.
 
 You MUST produce structured JSON containing exactly these 7 core analytical sections:
 1. "key_findings": List of core empirical breakthroughs, verified facts, and strategic insights.
@@ -298,6 +307,9 @@ Format strictly as JSON matching:
   "confidence_level": "HIGH"
 }""",
     user_template="""Synthesize the following research data for research topic: '{query}'.
+
+Structured Research Data (query, user_data, verified_evidence, contradictions, analysis):
+{research_data}
 
 Previous Context & Objective:
 {previous_context}

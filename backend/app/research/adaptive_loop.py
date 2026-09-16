@@ -26,6 +26,7 @@ from typing import Any, Dict, List, Optional, Set
 from app.database.models.evidence import Evidence
 from app.database.models.research import ResearchTask
 from app.database.models.source import Source
+from app.research.contradictions import contradiction_detector
 from app.utils.logger import logger
 
 
@@ -102,30 +103,17 @@ def detect_contradictions(evidence: List[Evidence]) -> List[Dict[str, Any]]:
                 "source_id": ev.source_id,
             })
 
-    # Also detect numeric contradictions: same metric, wildly different values
-    metric_claims: Dict[str, List[Evidence]] = {}
-    for ev in evidence:
-        for m in (ev.metrics or []):
-            metric_claims.setdefault(m, []).append(ev)
+    # Pairwise checks are delegated to the metric-, geography-, and
+    # modality-aware detector so unrelated statistics do not create follow-up work.
+    for finding in contradiction_detector.detect_all(evidence):
+        contradictions.append({
+            "claim_a": finding.left_claim,
+            "claim_b": finding.right_claim,
+            "reason": finding.cause,
+            "signal": "validated contradiction between comparable claims",
+        })
 
-    for metric, evs in metric_claims.items():
-        if len(evs) >= 2:
-            # Check if the claims for the same metric differ significantly
-            conflicting = [
-                e for e in evs
-                if e.claim and any(
-                    other.claim and other.claim != e.claim and other.source_id != e.source_id
-                    for other in evs
-                )
-            ]
-            if conflicting:
-                contradictions.append({
-                    "metric": metric,
-                    "conflicting_claims": [e.claim for e in conflicting[:3]],
-                    "signal": "same metric reported differently across sources",
-                })
-
-    return contradictions
+    return list({str(item): item for item in contradictions}.values())
 
 
 # ---------------------------------------------------------------------------

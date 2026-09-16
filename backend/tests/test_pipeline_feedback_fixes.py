@@ -6,6 +6,7 @@ Regression test suite covering the 4 instructor feedback points:
 4. Fixing cross-region contradiction detection (India vs Canada) and repeated counting
 """
 import pytest
+from unittest.mock import AsyncMock, patch
 from app.database.models.source import Source, SourceType
 from app.database.models.evidence import Evidence
 from app.research.source_validator import source_validator
@@ -14,7 +15,7 @@ from app.research.contradictions import contradiction_detector
 from app.research.evidence import evidence_extractor
 from app.scraping.text_normalizer import text_normalizer
 from app.llm.provider import MockLLMProvider
-from app.agents.synthesizer import synthesizer_agent, SynthesisResult
+from app.agents.synthesizer import SynthesizerAgent, synthesizer_agent, SynthesisResult
 
 
 # ---------------------------------------------------------------------------
@@ -70,6 +71,10 @@ def test_evidence_extraction_snippet_fallback_and_corruption_rejection():
         assert "4x" in ev.claim or "ISG" in ev.claim or "wiring" in ev.claim
 
 
+def test_binary_symbol_debris_is_rejected_as_corrupted_text():
+    assert text_normalizer.is_corrupted_text("$J% &WM*{,h-_ru]\\GC+%4h?C)BW3...") is True
+
+
 # ---------------------------------------------------------------------------
 # Test 3: Contradiction detection avoids cross-region false positives (India vs Canada)
 # ---------------------------------------------------------------------------
@@ -88,6 +93,17 @@ def test_contradiction_ignores_cross_region_claims():
     # India vs Canada should NOT be flagged as a contradiction
     findings = contradiction_detector.detect(india_ev.claim, [canada_ev])
     assert len(findings) == 0
+
+
+def test_contradiction_ignores_different_metrics_and_forecasts():
+    penetration_forecast = "EV penetration may increase to 10-12% by 2030 in India."
+    growth_actual = Evidence(
+        source_id="src-growth",
+        claim="EV passenger vehicles grew 57% in India during 2025.",
+        quote="EV passenger vehicles grew 57% in India during 2025.",
+    )
+
+    assert contradiction_detector.detect(penetration_forecast, [growth_actual]) == []
 
 
 def test_contradiction_detects_genuine_conflict_and_deduplicates():
@@ -141,3 +157,38 @@ Verified Evidence Pool:
     for kf in data["key_findings"]:
         assert "frontier AI architectures" not in kf
         assert "commercial roadmap milestones announced for" not in kf
+
+
+@pytest.mark.asyncio
+async def test_writer_receives_clean_structured_research_data():
+    source = Source(
+        id="src-writer-1",
+        research_id="res-writer-1",
+        url="https://pib.gov.in/ev-update",
+        title="PIB EV Update",
+        credibility_score=0.95,
+    )
+    evidence = Evidence(
+        research_id="res-writer-1",
+        source_id="src-writer-1",
+        source_title="PIB EV Update",
+        source_url=source.url,
+        claim="India EV sales grew 45% in 2025.",
+        quote="India EV sales grew 45% in 2025.",
+        confidence=0.95,
+    )
+    agent = SynthesizerAgent()
+    synthesis_json = '{"key_findings": ["India EV sales grew 45% in 2025."]}'
+
+    with patch.object(
+        agent.llm,
+        "execute_prompt",
+        new=AsyncMock(side_effect=[synthesis_json, "# Evidence-grounded report"]),
+    ) as mock_execute:
+        await agent.synthesize_report("India EV market", [source], [evidence])
+
+    writer_variables = mock_execute.await_args_list[1].kwargs["variables"]
+    structured_data = writer_variables["research_data"]
+    assert "verified_evidence" in structured_data
+    assert "analysis" in structured_data
+    assert "epistemic hallucinations" not in structured_data.lower()

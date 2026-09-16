@@ -19,6 +19,29 @@ _POSITIVE = {"increase", "increased", "growth", "grew", "rose", "risen", "expand
 _NEGATIVE = {"decrease", "decreased", "decline", "declined", "fell", "dropped", "shrank", "collapsed", "lower"}
 _STOPWORDS = {"the", "and", "for", "in", "of", "to", "by", "a", "an", "is", "are", "on", "at", "with", "as"}
 
+PENETRATION = "penetration"
+GROWTH = "growth"
+VOLUME = "volume"
+SUBSIDY_FINANCE = "subsidy_finance"
+EFFICIENCY_RANGE = "efficiency_range"
+PRICE = "price"
+
+_FORECAST_TERMS = {
+    "forecast", "forecasted", "project", "projects", "projected", "projection",
+    "target", "targets", "expected", "expect", "will", "may", "could", "aims",
+    "aim", "estimate", "estimated", "outlook",
+}
+_HISTORICAL_TERMS = {
+    "actual", "actuals", "recorded", "reported", "registered", "was", "were",
+    "grew", "increased", "decreased", "fell", "rose", "sold", "reached",
+}
+_SEGMENTS = {
+    "two_wheeler": re.compile(r"\b(?:2w|two[- ]wheelers?|e2w)\b", re.IGNORECASE),
+    "three_wheeler": re.compile(r"\b(?:3w|three[- ]wheelers?|e3w)\b", re.IGNORECASE),
+    "passenger": re.compile(r"\b(?:passenger|four[- ]wheelers?|4w|cars?)\b", re.IGNORECASE),
+    "commercial": re.compile(r"\b(?:commercial|fleet|buses?|trucks?)\b", re.IGNORECASE),
+}
+
 # Distinct geographic regions / scopes that cannot contradict each other
 _GEO_REGIONS = {
     "india": {"india", "indian", "delhi", "mumbai", "bengaluru", "siam", "pib", "niti", "fame", "emps"},
@@ -83,6 +106,7 @@ class ContradictionDetector:
         claim_numbers = self._numbers(claim)
         claim_polarity = self._polarity(claim)
         claim_region = self._detect_region(claim)
+        claim_metric = self.classify_metric(claim)
 
         for candidate in evidence:
             cand_claim = candidate.claim.strip()
@@ -92,6 +116,9 @@ class ContradictionDetector:
             # Scope / Regional check: different regions cannot contradict
             cand_region = self._detect_region(cand_claim)
             if claim_region and cand_region and claim_region != cand_region:
+                continue
+
+            if not self._are_comparable(claim, cand_claim, claim_metric, self.classify_metric(cand_claim)):
                 continue
 
             candidate_tokens = self._tokens(cand_claim)
@@ -143,6 +170,9 @@ class ContradictionDetector:
                 if region_a and region_b and region_a != region_b:
                     continue
 
+                if not self._are_comparable(claim_a, claim_b):
+                    continue
+
                 tokens_a = self._tokens(claim_a)
                 tokens_b = self._tokens(claim_b)
                 shared = tokens_a.intersection(tokens_b)
@@ -182,6 +212,59 @@ class ContradictionDetector:
             if tokens.intersection(region_keywords):
                 return region_name
         return None
+
+    @staticmethod
+    def classify_metric(text: str) -> Optional[str]:
+        """Classify the subject of a claim before comparing its direction or value."""
+        normalized = text.lower()
+        if re.search(r"\b(?:penetration|market share|share|adoption rate)\b", normalized):
+            return PENETRATION
+        if re.search(r"\b(?:grew|growth|increased|decreased|declined|fell|rose|yoy|cagr)\b", normalized):
+            return GROWTH
+        if re.search(r"\b(?:subsidy|subsidies|grant|incentive|funding|finance|loan|tax credit)\b", normalized):
+            return SUBSIDY_FINANCE
+        if re.search(r"\b(?:range|efficiency|wh/kg|kwh|consumption|mileage)\b", normalized):
+            return EFFICIENCY_RANGE
+        if re.search(r"\b(?:price|cost|pricing|\$|₹|€|£)\b", normalized):
+            return PRICE
+        if re.search(r"\b(?:sales|registrations?|volume|units?|vehicles?)\b", normalized):
+            return VOLUME
+        return None
+
+    @staticmethod
+    def _is_forecast(text: str) -> bool:
+        return bool(set(_TOKEN_PATTERN.findall(text.lower())).intersection(_FORECAST_TERMS))
+
+    @staticmethod
+    def _is_historical(text: str) -> bool:
+        return bool(set(_TOKEN_PATTERN.findall(text.lower())).intersection(_HISTORICAL_TERMS))
+
+    @staticmethod
+    def _detect_segment(text: str) -> Optional[str]:
+        for segment, pattern in _SEGMENTS.items():
+            if pattern.search(text):
+                return segment
+        return None
+
+    def _are_comparable(
+        self,
+        left: str,
+        right: str,
+        left_metric: Optional[str] = None,
+        right_metric: Optional[str] = None,
+    ) -> bool:
+        """Reject pairs that describe different measures, time modalities, or vehicle scopes."""
+        left_metric = left_metric or self.classify_metric(left)
+        right_metric = right_metric or self.classify_metric(right)
+        if not left_metric or not right_metric or left_metric != right_metric:
+            return False
+        if (self._is_forecast(left) and self._is_historical(right)) or (
+            self._is_forecast(right) and self._is_historical(left)
+        ):
+            return False
+        left_segment = self._detect_segment(left)
+        right_segment = self._detect_segment(right)
+        return not (left_segment and right_segment and left_segment != right_segment)
 
     def _investigate_cause(self, left: str, right: str) -> str:
         causes = []

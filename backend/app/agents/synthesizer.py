@@ -93,6 +93,9 @@ class SynthesizerAgent:
         Synthesize multi-dimensional intelligence from task results, evidence, sources, and previous context.
         Occurs after evidence collection.
         """
+        evidence = self._filter_verified_evidence(evidence)
+        sources = self._filter_valid_sources(sources)
+        writer_data = self._build_writer_data(query, previous_context, evidence, sources)
         task_summary = self._format_task_results_summary(task_results)
         evidence_summary = self._format_evidence_summary(evidence)
         sources_summary = self._format_sources_summary(sources)
@@ -119,6 +122,7 @@ class SynthesizerAgent:
                     "task_results_summary": task_summary or "None provided.",
                     "evidence_summary": evidence_summary or "None extracted.",
                     "sources_summary": sources_summary or "None available.",
+                    "research_data": json.dumps(writer_data, ensure_ascii=False),
                 },
             )
 
@@ -157,6 +161,10 @@ class SynthesizerAgent:
         Synthesizes a publication-grade ResearchReport containing the 7 analytical dimensions
         along with structured markdown content, traceable citations, and verification audits.
         """
+        evidence = self._filter_verified_evidence(evidence)
+        sources = self._filter_valid_sources(sources)
+        writer_data = self._build_writer_data(query, previous_context, evidence, sources)
+
         # Build or normalize citations
         if not citations:
             citations = citation_engine.build_citations(sources, evidence)
@@ -184,7 +192,11 @@ class SynthesizerAgent:
         try:
             markdown_body = await self.llm.execute_prompt(
                 report_prompt,
-                variables={"query": query, "evidence_summary": evidence_summary},
+                variables={
+                    "query": query,
+                    "evidence_summary": evidence_summary,
+                    "research_data": json.dumps(writer_data, ensure_ascii=False),
+                },
             )
         except Exception as e:
             logger.warning(f"Error generating markdown body with LLM: {e}")
@@ -233,6 +245,72 @@ class SynthesizerAgent:
     # -------------------------------------------------------------------------
     # Helper formatting & heuristic synthesis routines
     # -------------------------------------------------------------------------
+
+    @staticmethod
+    def _filter_verified_evidence(evidence: List[Evidence]) -> List[Evidence]:
+        """Keep only human-readable evidence that has not been refuted or disputed."""
+        from app.scraping.text_normalizer import text_normalizer
+
+        valid: List[Evidence] = []
+        for item in evidence:
+            claim = text_normalizer.sanitize_for_evidence(item.claim or "")
+            quote = text_normalizer.sanitize_for_evidence(item.quote or item.evidence or "")
+            if item.verification_status in {"disputed", "refuted"}:
+                continue
+            if text_normalizer.is_corrupted_text(claim) or text_normalizer.is_corrupted_text(quote):
+                continue
+            item.claim, item.quote, item.evidence = claim, quote, quote
+            valid.append(item)
+        return valid
+
+    @staticmethod
+    def _filter_valid_sources(sources: List[Source]) -> List[Source]:
+        from app.research.source_validator import source_validator
+
+        # Sources that are represented by vetted evidence may not retain their full
+        # scraped text, so reject placeholders and malformed URLs without requiring
+        # a duplicate content field here.
+        return [
+            source for source in sources
+            if source.url.startswith(("http://", "https://"))
+            and not source_validator.is_placeholder(source)[0]
+        ]
+
+    def _build_writer_data(
+        self,
+        query: str,
+        user_data: Optional[Union[str, Dict[str, Any]]],
+        evidence: List[Evidence],
+        sources: List[Source],
+    ) -> Dict[str, Any]:
+        """Construct the sole grounded data object supplied to report-writing prompts."""
+        from app.agents.analyst import analyst_agent
+        from app.research.contradictions import contradiction_detector
+
+        evidence_data = [
+            {
+                "claim": item.claim,
+                "quote": item.quote or item.evidence,
+                "source_id": item.source_id,
+                "source_title": item.source_title,
+                "source_url": item.source_url,
+                "confidence": item.confidence,
+                "metrics": item.metrics,
+            }
+            for item in evidence
+        ]
+        contradictions = [finding.format() for finding in contradiction_detector.detect_all(evidence)]
+        return {
+            "query": query,
+            "user_data": user_data or {},
+            "verified_evidence": evidence_data,
+            "validated_sources": [
+                {"title": source.title, "url": source.url, "credibility_score": source.credibility_score}
+                for source in sources
+            ],
+            "contradictions": contradictions,
+            "analysis": analyst_agent.build_analysis(evidence),
+        }
 
     def _format_task_results_summary(self, task_results: Optional[List[Any]]) -> str:
         if not task_results:
@@ -287,6 +365,16 @@ class SynthesizerAgent:
         fact_checks: Optional[List[FactCheckResult]],
     ) -> SynthesisResult:
         """Constructs rich, domain-grounded synthesis across the 7 output dimensions."""
+        return self._build_grounded_heuristic_synthesis(
+            query=query,
+            evidence=evidence,
+            sources=sources,
+            task_results=task_results,
+            fact_checks=fact_checks,
+        )
+
+        # Legacy synthesis logic is retained below temporarily for source-history
+        # compatibility, but all production calls return through the grounded path.
         # 1. Key findings from high-confidence, clean evidence
         from app.scraping.text_normalizer import text_normalizer
         key_findings = []
@@ -432,6 +520,68 @@ class SynthesizerAgent:
             contradictions=contradictions,
             uncertainty=uncertainty,
             executive_summary=exec_summary,
+            confidence=confidence_assessment.score,
+            confidence_level=confidence_assessment.level,
+            confidence_factors=confidence_assessment.factors,
+        )
+
+    def _build_grounded_heuristic_synthesis(
+        self,
+        query: str,
+        evidence: List[Evidence],
+        sources: List[Source],
+        task_results: Optional[List[Any]],
+        fact_checks: Optional[List[FactCheckResult]],
+    ) -> SynthesisResult:
+        """Create a report outline from verified claims without topic-specific filler."""
+        from app.agents.analyst import analyst_agent
+        from app.research.contradictions import contradiction_detector
+
+        analysis = analyst_agent.build_analysis(evidence)
+        findings = list(dict.fromkeys(item.claim for item in evidence if item.claim))[:6]
+        if not findings:
+            findings = [f"No clean verified evidence was available for '{query}'."]
+
+        contradictions = []
+        if fact_checks:
+            contradictions.extend(
+                item for check in fact_checks for item in (check.contradictions or [])
+            )
+        contradictions.extend(finding.format() for finding in contradiction_detector.detect_all(evidence))
+        contradictions = list(dict.fromkeys(contradictions))[:3]
+        if not contradictions:
+            contradictions = ["No contradiction was found among comparable verified claims."]
+
+        market_claims = analysis["market"] or findings[:2]
+        market_analysis = " ".join(market_claims)
+        trends = analysis["growth"] or findings[:3]
+        opportunities = analysis["opportunities"] or [
+            "The verified evidence does not identify a specific opportunity."
+        ]
+        risks = analysis["risks"] or [
+            "The verified evidence does not identify a specific risk."
+        ]
+        recommendations = [
+            f"Base decisions about '{query}' on the cited verified evidence and validate any gaps before acting."
+        ]
+        uncertainty = [
+            "The available verified evidence does not resolve every remaining question for this topic."
+        ]
+        summary = (
+            f"For '{query}', the report uses {len(evidence)} clean verified evidence items "
+            f"from {len(sources)} validated sources. " + " ".join(findings[:2])
+        )
+        confidence_assessment = assess_confidence(evidence, sources, contradictions=contradictions)
+        return SynthesisResult(
+            key_findings=findings,
+            market_analysis=market_analysis,
+            trends=trends,
+            opportunities=opportunities,
+            recommendations=recommendations,
+            risks=risks,
+            contradictions=contradictions,
+            uncertainty=uncertainty,
+            executive_summary=summary,
             confidence=confidence_assessment.score,
             confidence_level=confidence_assessment.level,
             confidence_factors=confidence_assessment.factors,

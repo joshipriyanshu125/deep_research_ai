@@ -39,10 +39,46 @@ class TextNormalizer:
         if "\ufffd" in cleaned:
             return True
 
+        # Markdown tables are structured data, not prose. Their pipe and separator
+        # characters intentionally exceed the punctuation density of a sentence.
+        table_lines = [
+            line.strip() for line in cleaned.splitlines()
+            if line.strip().startswith("|") and line.strip().endswith("|")
+        ]
+        if len(table_lines) >= 2 and any(
+            len(re.findall(r"[A-Za-z]{2,}", line)) >= 2 for line in table_lines
+        ):
+            return False
+
         # Must have at least 2 actual words
         words = [w for w in cleaned.split() if len(w) >= 2]
         if len(words) < 2:
             return True
+
+        non_whitespace = [char for char in cleaned if not char.isspace()]
+        alphabetic_ratio = sum(char.isalpha() for char in non_whitespace) / max(len(non_whitespace), 1)
+        if alphabetic_ratio < 0.55:
+            return True
+
+        symbol_density = sum(
+            not char.isalnum() for char in non_whitespace
+        ) / max(len(non_whitespace), 1)
+        if symbol_density >= 0.18:
+            return True
+
+        # Compressed bytes and minified artifacts tend to contain symbol clusters
+        # or symbols embedded inside what would otherwise be words.
+        junk_symbols = r"[*~_<>|\\{}\[\]^`$%+=]"
+        if re.search(rf"{junk_symbols}{{2,}}", cleaned):
+            return True
+        if re.search(rf"[A-Za-z0-9]{junk_symbols}[A-Za-z0-9]", cleaned):
+            return True
+
+        alphabetic_words = re.findall(r"[A-Za-z]{2,}", cleaned)
+        if alphabetic_words:
+            vowel_words = sum(bool(re.search(r"[aeiouy]", word, re.IGNORECASE)) for word in alphabetic_words)
+            if vowel_words / len(alphabetic_words) < 0.60:
+                return True
 
         # Calculate ratio of valid alphanumeric / standard punctuation chars
         valid_chars = sum(

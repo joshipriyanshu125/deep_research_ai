@@ -74,7 +74,7 @@ def build_report_sections(
         "market_analysis": "Market Analysis & Commercial Trajectory",
         "technical_analysis": "Technical & Empirical Analysis",
         "comparative_analysis": "Comparative Metrics & Evaluation",
-        "risks": "Risks, Contradictions & Epistemic Uncertainty",
+        "risks": "Risks, Contradictions & Strategic Challenges",
         "recommendations": "Strategic Recommendations",
     }
     return [
