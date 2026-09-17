@@ -71,6 +71,9 @@ class Settings(BaseSettings):
     WORKER_CONCURRENCY: int = 4
     WORKER_POLL_INTERVAL_SECONDS: float = 2.0
     WORKER_JOB_TIMEOUT_SECONDS: int = 1800
+    # "local" starts the in-process worker; "distributed" queues jobs for
+    # app.workers.distributed_worker, which should run as a separate process.
+    WORKER_MODE: str = "local"
 
     # JWT Authentication & Token Security
     JWT_ACCESS_SECRET: Optional[str] = None

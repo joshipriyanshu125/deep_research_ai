@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from app.database.models.research import ResearchJob, ResearchStatus, ResearchTask
 from app.database.models.report import ResearchReport
 from app.database.models.source import Source
+from app.database.models.evidence import Evidence
 from app.database.repositories.research_repo import research_repo
 from app.database.repositories.report_repo import report_repo
 from app.research.planner import research_planner
@@ -65,6 +66,14 @@ class ResearchOrchestrator:
         # Keep the audit in checkpoint_data as well for older clients that only
         # consume checkpoint information.
         job.checkpoint_data["execution_summary"] = audit
+        try:
+            from app.database.models.observability import AgentLogRecord
+            from app.database.repositories.observability_repo import observability_repo
+            asyncio.get_running_loop().create_task(observability_repo.add_agent_log(AgentLogRecord(
+                research_id=job.id, agent=stage, status=status, details=details,
+            )))
+        except RuntimeError:
+            pass
 
     @staticmethod
     def _record_iteration(job: ResearchJob, iteration: int, status: str, **details: Any) -> None:
@@ -233,6 +242,27 @@ class ResearchOrchestrator:
             self._record_iteration(job, 1, "completed", evidence_count=len(all_evidence))
             await research_repo.update_job(job)
 
+            # Retrieve source-grounded chunks after indexing.  These are used
+            # to corroborate fact checks and are handed to the writer as
+            # provenance-bearing context; they are not invented evidence.
+            rag_chunks = await rag_retriever.retrieve_hybrid(job.query, top_k=8)
+            rag_context_evidence = [
+                Evidence(
+                    research_id=job.id,
+                    source_id=str(chunk.get("metadata", {}).get("source_id") or chunk.get("document_id") or "rag-context"),
+                    source_url=str(chunk.get("metadata", {}).get("url") or ""),
+                    source_title=str(chunk.get("metadata", {}).get("title") or "Retrieved RAG context"),
+                    claim=str(chunk.get("content") or ""),
+                    quote=str(chunk.get("content") or ""),
+                    confidence=min(1.0, max(0.0, float(chunk.get("score", 0.0)))),
+                    metadata={"rag_retrieved": True, "chunk_id": chunk.get("chunk_id"), "section": chunk.get("section")},
+                )
+                for chunk in rag_chunks
+                if str(chunk.get("content") or "").strip()
+            ]
+            self._record_stage(job, "rag_retrieval", "completed", retrieved_chunk_count=len(rag_context_evidence))
+            await research_repo.update_job(job)
+
             # 4. Fact Verification — skipped for quick mode
             job.status = ResearchStatus.ANALYZING
             job.checkpoint_phase = "analyzing"
@@ -257,7 +287,9 @@ class ResearchOrchestrator:
                 # iterations 1 and 2 instead of treating depth as planner-only.
                 for iteration in range(2, job.depth + 1):
                     self._record_iteration(job, iteration, "running")
-                    verified_evidence = await fact_checker_agent.verify_evidence(verified_evidence, sources=sources)
+                    verified_evidence = await fact_checker_agent.verify_evidence(
+                        verified_evidence, sources=sources, context_evidence=rag_context_evidence,
+                    )
                     for evidence in verified_evidence:
                         await research_repo.update_evidence(evidence)
                     fact_check_results = await fact_checker_agent.fact_check_batch(
@@ -273,7 +305,9 @@ class ResearchOrchestrator:
                 # A depth-one fact-checked request still receives its single
                 # verification pass; depth two and above use the loop above.
                 if job.depth == 1:
-                    verified_evidence = await fact_checker_agent.verify_evidence(all_evidence, sources=sources)
+                    verified_evidence = await fact_checker_agent.verify_evidence(
+                        all_evidence, sources=sources, context_evidence=rag_context_evidence,
+                    )
                     for evidence in verified_evidence:
                         await research_repo.update_evidence(evidence)
                     fact_check_results = await fact_checker_agent.fact_check_batch(
@@ -359,6 +393,11 @@ class ResearchOrchestrator:
                 "checkpoint": job.checkpoint_data,
                 "parent_research_id": job.parent_research_id,
                 "research_mode": mode_cfg.mode,
+                "rag_context": [
+                    {"content": item.quote[:600], "source_id": item.source_id, "source_url": item.source_url,
+                     "source_title": item.source_title, "chunk_id": item.metadata.get("chunk_id")}
+                    for item in rag_context_evidence
+                ],
             }
 
             # First synthesis pass (always runs)

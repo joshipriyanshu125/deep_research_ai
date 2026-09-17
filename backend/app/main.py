@@ -39,12 +39,15 @@ async def lifespan(app: FastAPI):
     # Startup
     await connect_to_mongo()
     await redis_service.connect()
-    worker_task = asyncio.create_task(research_worker.start_worker())
+    worker_task = None
+    if settings.WORKER_MODE == "local":
+        worker_task = asyncio.create_task(research_worker.start_worker())
     scheduler_task = asyncio.create_task(scheduled_research_service.start_scheduler_loop(poll_interval_seconds=60))
     yield
     # Shutdown
     research_worker.is_running = False
-    worker_task.cancel()
+    if worker_task:
+        worker_task.cancel()
     scheduled_research_service.stop_scheduler_loop()
     scheduler_task.cancel()
     await redis_service.disconnect()

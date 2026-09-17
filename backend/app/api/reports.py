@@ -1,7 +1,11 @@
-from typing import List, Dict, Any
-from fastapi import APIRouter, HTTPException, Response
+from typing import List, Dict, Any, Optional
+from fastapi import APIRouter, HTTPException, Response, Depends
 from app.database.models.report import ResearchReport, Citation, CitationTrace
 from app.services.report_service import report_service
+from app.database.models.feedback import ReportFeedback, ReportFeedbackCreate
+from app.database.repositories.feedback_repo import feedback_repo
+from app.database.models.user import UserInDB
+from app.middleware.auth import get_current_user
 
 router = APIRouter(prefix="/reports", tags=["Reports"])
 
@@ -9,6 +13,22 @@ router = APIRouter(prefix="/reports", tags=["Reports"])
 @router.get("/{report_id}", response_model=ResearchReport)
 async def get_report(report_id: str):
     return await report_service.get_report_by_id(report_id)
+
+@router.post("/{report_id}/feedback", response_model=ReportFeedback)
+async def submit_report_feedback(
+    report_id: str,
+    request: ReportFeedbackCreate,
+    user: Optional[UserInDB] = Depends(get_current_user),
+):
+    await report_service.get_report_by_id(report_id)
+    return await feedback_repo.create(ReportFeedback(
+        report_id=report_id, user_id=user.id if user else "anonymous", **request.model_dump(),
+    ))
+
+@router.get("/{report_id}/feedback", response_model=List[ReportFeedback])
+async def list_report_feedback(report_id: str):
+    await report_service.get_report_by_id(report_id)
+    return await feedback_repo.list_by_report(report_id)
 
 
 @router.get("/by-research/{research_id}", response_model=ResearchReport)

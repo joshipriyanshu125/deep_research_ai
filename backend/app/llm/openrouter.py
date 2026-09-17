@@ -59,7 +59,8 @@ class OpenRouterLLMProvider(BaseLLMProvider):
                     data = res.json()
                     return data["choices"][0]["message"]["content"]
                 else:
-                    logger.error(f"OpenRouter API Error {res.status_code}: {res.text}")
+                    log = logger.warning if res.status_code == 429 else logger.error
+                    log(f"OpenRouter API unavailable ({res.status_code}); using Mock LLM fallback: {res.text}")
                     return await MockLLMProvider().generate_text(prompt, system_prompt)
         except Exception as e:
             logger.error(f"Failed OpenRouter request: {e}")
@@ -97,7 +98,8 @@ class OpenRouterLLMProvider(BaseLLMProvider):
                     data = res.json()
                     return data["choices"][0]["message"]["content"]
                 else:
-                    logger.error(f"OpenRouter API JSON Error {res.status_code}: {res.text}")
+                    log = logger.warning if res.status_code == 429 else logger.error
+                    log(f"OpenRouter JSON API unavailable ({res.status_code}); using Mock LLM fallback: {res.text}")
                     return await MockLLMProvider().generate_structured_json(prompt, system_prompt)
         except Exception as e:
             logger.error(f"OpenRouter JSON request failed: {e}")

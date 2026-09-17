@@ -13,6 +13,8 @@ from app.database.models.comparison import ResearchComparison, ResearchCompariso
 from app.services.comparison_service import comparison_service
 # Day 91–95 — Advanced Research Modes
 from app.research.research_modes import list_modes
+from app.database.repositories.observability_repo import observability_repo
+from app.database.models.observability import ResearchEventRecord, AgentLogRecord
 
 router = APIRouter(prefix="/research", tags=["Research"])
 
@@ -63,6 +65,16 @@ async def list_research_modes():
 
 async def get_research_status(job_id: str):
     return await research_service.get_job_status(job_id)
+
+@router.get("/{job_id}/events", response_model=List[ResearchEventRecord])
+async def get_research_events(job_id: str):
+    await research_service.get_job_status(job_id)
+    return await observability_repo.list_events(job_id)
+
+@router.get("/{job_id}/agent-logs", response_model=List[AgentLogRecord])
+async def get_agent_logs(job_id: str):
+    await research_service.get_job_status(job_id)
+    return await observability_repo.list_agent_logs(job_id)
 
 @router.get("/{job_id}/sources")
 async def get_research_sources(job_id: str):

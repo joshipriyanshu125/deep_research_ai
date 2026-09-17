@@ -5,6 +5,7 @@ from app.database.repositories.research_repo import research_repo
 from app.research.orchestrator import research_orchestrator
 # Day 91–95 — Advanced Research Modes
 from app.research.research_modes import get_mode_config
+from app.config.settings import settings
 
 
 class ResearchService:
@@ -26,8 +27,12 @@ class ResearchService:
             research_mode=request.research_mode or "standard",
         )
         await research_repo.create_job(job)
-        from app.workers.research_worker import research_worker
-        await research_worker.enqueue_job(job)
+        if settings.WORKER_MODE == "distributed":
+            from app.services.redis_service import redis_service
+            await redis_service.enqueue("research_jobs_queue", {"job_id": job.id})
+        else:
+            from app.workers.research_worker import research_worker
+            await research_worker.enqueue_job(job)
         return job
 
     async def create_follow_up(self, parent: ResearchJob, query: str) -> ResearchJob:
@@ -39,8 +44,12 @@ class ResearchService:
                              "source_ids": parent.source_ids, "evidence_ids": parent.evidence_ids,
                              "report_id": parent.report_id})
         await research_repo.create_job(job)
-        from app.workers.research_worker import research_worker
-        await research_worker.enqueue_job(job)
+        if settings.WORKER_MODE == "distributed":
+            from app.services.redis_service import redis_service
+            await redis_service.enqueue("research_jobs_queue", {"job_id": job.id})
+        else:
+            from app.workers.research_worker import research_worker
+            await research_worker.enqueue_job(job)
         return job
 
     async def resume_research(self, job: ResearchJob) -> ResearchJob:
@@ -50,8 +59,12 @@ class ResearchService:
         job.error_message = None
         job.completed_at = None
         await research_repo.update_job(job)
-        from app.workers.research_worker import research_worker
-        await research_worker.enqueue_job(job)
+        if settings.WORKER_MODE == "distributed":
+            from app.services.redis_service import redis_service
+            await redis_service.enqueue("research_jobs_queue", {"job_id": job.id})
+        else:
+            from app.workers.research_worker import research_worker
+            await research_worker.enqueue_job(job)
         return job
 
     async def get_job_status(self, job_id: str) -> ResearchJob:

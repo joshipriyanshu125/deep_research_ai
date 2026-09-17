@@ -303,16 +303,20 @@ class FactCheckerAgent:
         self,
         evidence_list: List[Evidence],
         sources: Optional[List[Source]] = None,
+        context_evidence: Optional[List[Evidence]] = None,
     ) -> List[Evidence]:
         """
         Audits evidence list and enriches each Evidence instance with verified status and confidence.
         Maintains backward compatibility with Day 1-26 workflows.
         """
         verified: List[Evidence] = []
+        # RAG context is retrieval-only: it can corroborate a claim, but is
+        # never returned or persisted as newly extracted evidence.
+        evidence_pool = evidence_list + (context_evidence or [])
         for ev in evidence_list:
             fc = await self.fact_check_claim(
                 claim=ev.claim,
-                evidence_pool=evidence_list,
+                evidence_pool=evidence_pool,
                 sources=sources,
                 use_llm=False,
             )

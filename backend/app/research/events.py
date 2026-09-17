@@ -62,6 +62,16 @@ class ResearchEventBus:
             self._history.setdefault(job_id, []).append(payload)
             for queue in list(self._job_queues.get(job_id, [])):
                 queue.put_nowait(payload)
+            # Persistence is intentionally best-effort so a telemetry outage
+            # can never fail a research run or its real-time stream.
+            try:
+                from app.database.models.observability import ResearchEventRecord
+                from app.database.repositories.observability_repo import observability_repo
+                asyncio.get_running_loop().create_task(observability_repo.add_event(ResearchEventRecord(
+                    research_id=job_id, event=event_name, message=payload["message"], data=payload["data"],
+                )))
+            except RuntimeError:
+                pass
         return payload
 
     async def subscribe(self, job_id: str) -> AsyncGenerator[Dict[str, Any], None]:
