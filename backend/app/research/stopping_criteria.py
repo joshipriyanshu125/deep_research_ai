@@ -277,7 +277,7 @@ class ResearchStoppingCriteria:
 
     def summary_line(self, result: StoppingCriteriaResult) -> str:
         """Return a one-line human-readable summary."""
-        status = "✓ STOP" if result.should_stop else "↻ CONTINUE"
+        status = "[STOP]" if result.should_stop else "[CONTINUE]"
         return (
             f"{status} | Readiness: {result.overall_readiness:.0%} | "
             + " | ".join(f"{k}={v:.2f}" for k, v in result.criteria_scores.items())

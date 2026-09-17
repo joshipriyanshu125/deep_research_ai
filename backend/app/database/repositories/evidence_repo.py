@@ -44,6 +44,14 @@ class EvidenceRepository:
             return Evidence(**doc) if doc else None
         return self._evidence.get(evidence_id)
 
+    async def update_evidence(self, evidence: Evidence) -> Evidence:
+        """Persist verification and confidence changes made after extraction."""
+        if db_manager.is_connected:
+            await db_manager.db.evidence.replace_one({"id": evidence.id}, evidence.model_dump())
+        else:
+            self._evidence[evidence.id] = evidence
+        return evidence
+
     async def get_evidence_by_research(
         self,
         research_id: str,

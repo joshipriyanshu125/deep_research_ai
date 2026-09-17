@@ -34,12 +34,53 @@ from app.utils.logger import logger
 
 
 class ResearchOrchestrator:
+    @staticmethod
+    def _start_execution_audit(job: ResearchJob) -> None:
+        """Create a stable, API-visible record for every requested depth pass."""
+        now = datetime.now(timezone.utc).isoformat()
+        job.execution_summary = {
+            "requested_depth": job.depth,
+            "requested_breadth": job.breadth,
+            "iterations": [
+                {
+                    "iteration": number,
+                    "status": "pending",
+                    "purpose": "discovery and evidence extraction" if number == 1 else "verification, contradiction analysis, and synthesis refinement",
+                }
+                for number in range(1, job.depth + 1)
+            ],
+            "stages": {},
+            "started_at": now,
+        }
+
+    @staticmethod
+    def _record_stage(job: ResearchJob, stage: str, status: str, **details: Any) -> None:
+        """Record a pipeline stage without placing non-serialisable objects in a job."""
+        audit = job.execution_summary
+        audit.setdefault("stages", {})[stage] = {
+            "status": status,
+            "recorded_at": datetime.now(timezone.utc).isoformat(),
+            **details,
+        }
+        # Keep the audit in checkpoint_data as well for older clients that only
+        # consume checkpoint information.
+        job.checkpoint_data["execution_summary"] = audit
+
+    @staticmethod
+    def _record_iteration(job: ResearchJob, iteration: int, status: str, **details: Any) -> None:
+        for item in job.execution_summary.get("iterations", []):
+            if item["iteration"] == iteration:
+                item.update({"status": status, **details})
+                break
+
     async def run_pipeline_stream(self, job: ResearchJob) -> AsyncGenerator[Dict[str, Any], None]:
         try:
             # ----------------------------------------------------------------
             # Day 91–95: Resolve research mode config for this job
             # ----------------------------------------------------------------
             mode_cfg: ResearchModeConfig = get_mode_config(getattr(job, "research_mode", "standard"))
+            self._start_execution_audit(job)
+            self._record_iteration(job, 1, "running")
             logger.info(
                 f"[ResearchModes] Job {job.id} running in '{mode_cfg.mode}' mode "
                 f"(sources: {mode_cfg.min_sources}–{mode_cfg.max_sources}, "
@@ -73,6 +114,7 @@ class ResearchOrchestrator:
                 breadth=job.breadth,
             )
             job.tasks = tasks
+            self._record_stage(job, "planner", "completed", task_count=len(tasks))
             job.checkpoint_phase = "planned"
             job.checkpoint_data["task_ids"] = [t.id for t in tasks]
             job.progress_percentage = 25
@@ -124,6 +166,11 @@ class ResearchOrchestrator:
             from app.research.source_validator import source_validator
             sources = source_validator.filter_valid_sources(sources)
             job.source_ids = [source.id for source in sources]
+            self._record_stage(
+                job, "research_tracks", "completed", source_count=len(sources),
+                categories=sorted({task.category for task in tasks}),
+                task_results=[{"id": task.id, "category": task.category, "results_count": task.results_count, "status": task.status} for task in tasks],
+            )
             job.checkpoint_data["source_ids"] = job.source_ids
             await research_repo.update_job(job)
 
@@ -182,6 +229,9 @@ class ResearchOrchestrator:
                         message=f"Evidence extracted",
                         data={"evidence": ev.model_dump(mode="json") if hasattr(ev, "model_dump") else ev.__dict__},
                     )
+            self._record_stage(job, "evidence_engine", "completed", evidence_count=len(all_evidence))
+            self._record_iteration(job, 1, "completed", evidence_count=len(all_evidence))
+            await research_repo.update_job(job)
 
             # 4. Fact Verification — skipped for quick mode
             job.status = ResearchStatus.ANALYZING
@@ -200,11 +250,38 @@ class ResearchOrchestrator:
                     message="Fact checking...",
                     data={"evidence_count": len(all_evidence)},
                 )
-                verified_evidence = await fact_checker_agent.verify_evidence(all_evidence, sources=sources)
-                fact_check_results = await fact_checker_agent.fact_check_batch(
-                    claims=verified_evidence,
-                    evidence_pool=all_evidence,
-                    sources=sources,
+                verified_evidence = all_evidence
+                fact_check_results = []
+                # Each requested depth after discovery is a real verification
+                # iteration.  This makes depth=2 explicitly run and expose
+                # iterations 1 and 2 instead of treating depth as planner-only.
+                for iteration in range(2, job.depth + 1):
+                    self._record_iteration(job, iteration, "running")
+                    verified_evidence = await fact_checker_agent.verify_evidence(verified_evidence, sources=sources)
+                    for evidence in verified_evidence:
+                        await research_repo.update_evidence(evidence)
+                    fact_check_results = await fact_checker_agent.fact_check_batch(
+                        claims=verified_evidence,
+                        evidence_pool=verified_evidence,
+                        sources=sources,
+                    )
+                    self._record_iteration(
+                        job, iteration, "completed",
+                        verified_count=sum(1 for item in fact_check_results if item.supported),
+                    )
+
+                # A depth-one fact-checked request still receives its single
+                # verification pass; depth two and above use the loop above.
+                if job.depth == 1:
+                    verified_evidence = await fact_checker_agent.verify_evidence(all_evidence, sources=sources)
+                    for evidence in verified_evidence:
+                        await research_repo.update_evidence(evidence)
+                    fact_check_results = await fact_checker_agent.fact_check_batch(
+                        claims=verified_evidence, evidence_pool=verified_evidence, sources=sources,
+                    )
+                self._record_stage(
+                    job, "verification", "completed", passes=max(1, job.depth - 1),
+                    verified_count=sum(1 for item in fact_check_results if item.supported),
                 )
                 yield {
                     "event": "fact_checks_ready",
@@ -218,27 +295,42 @@ class ResearchOrchestrator:
                 logger.info(f"[ResearchModes] Skipping fact-checking (mode={mode_cfg.mode})")
                 verified_evidence = all_evidence
                 fact_check_results = []
+                for iteration in range(2, job.depth + 1):
+                    self._record_iteration(job, iteration, "skipped", reason="fact checking is disabled for this mode")
+                self._record_stage(job, "verification", "skipped", reason="fact checking is disabled for this mode")
                 yield {
                     "event": "fact_checks_ready",
                     "data": {"fact_checks": [], "verified_count": 0, "skipped": True},
                 }
 
-            # 4b. Contradiction analysis — expert mode only
-            if mode_cfg.enable_contradiction_analysis:
+            # 4b. Contradiction analysis is part of every fact-checking run.
+            # Expert mode retains the same sweep, but it is no longer invisible
+            # for the standard depth-two workflow.
+            if mode_cfg.enable_fact_checking:
                 logger.info(f"[ResearchModes] Running contradiction analysis (mode={mode_cfg.mode})")
                 job.current_step = f"[{mode_cfg.display_name}] Running contradiction analysis..."
                 await research_repo.update_job(job)
                 yield {"event": "contradiction_analysis_started", "data": {"mode": mode_cfg.mode}}
                 # Import at call-site to avoid circular imports
                 from app.research.contradictions import contradiction_detector
-                contradiction_report = contradiction_detector.detect(all_evidence)
+                contradiction_report = contradiction_detector.detect_all(verified_evidence)
+                contradiction_data = {
+                    "finding_count": len(contradiction_report),
+                    "findings": [finding.format() for finding in contradiction_report],
+                }
+                self._record_stage(job, "contradiction_engine", "completed", **contradiction_data)
+                await research_repo.update_job(job)
                 yield {
                     "event": "contradiction_analysis_ready",
-                    "data": contradiction_report if isinstance(contradiction_report, dict) else {},
+                    "data": contradiction_data,
                 }
+            else:
+                self._record_stage(job, "contradiction_engine", "skipped", reason="fact checking is disabled for this mode")
 
             # 4c. Analyst pass
             analysis_result = await analyst_agent.analyze_findings(verified_evidence)
+            self._record_stage(job, "analysis", "completed", key_pattern_count=len(analysis_result.get("key_patterns", [])))
+            await research_repo.update_job(job)
             yield {"event": "analysis_ready", "data": analysis_result}
 
             # 5. Citation Generation & Synthesis
@@ -318,6 +410,7 @@ class ResearchOrchestrator:
 
             report.research_id = job.id
             await report_repo.create(report)
+            self._record_stage(job, "writer", "completed", report_id=report.id)
 
             # 6. Quality Scoring
             quality = research_quality_scorer.score(
@@ -350,6 +443,7 @@ class ResearchOrchestrator:
             job.progress_percentage = 100
             job.current_step = f"[{mode_cfg.display_name}] Research successfully completed."
             job.completed_at = datetime.now(timezone.utc)
+            job.execution_summary["completed_at"] = job.completed_at.isoformat()
             await research_repo.update_job(job)
             research_event_bus.emit(
                 REPORT_COMPLETED,

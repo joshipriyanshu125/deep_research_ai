@@ -81,6 +81,10 @@ class ResearchRepository:
             min_confidence=min_confidence,
         )
 
+    async def update_evidence(self, evidence: Evidence) -> Evidence:
+        from app.database.repositories.evidence_repo import evidence_repo
+        return await evidence_repo.update_evidence(evidence)
+
 
 research_repo = ResearchRepository()
 

@@ -87,6 +87,10 @@ class ResearchJob(BaseModel):
     completed_at: Optional[datetime] = None
     checkpoint_phase: str = "pending"
     checkpoint_data: Dict[str, Any] = Field(default_factory=dict)
+    # Public, structured audit of the pipeline.  Unlike the transient progress
+    # message this survives completion and lets clients prove which engines and
+    # depth iterations actually ran.
+    execution_summary: Dict[str, Any] = Field(default_factory=dict)
     parent_research_id: Optional[str] = None
     # Day 91–95 — Advanced Research Modes
     research_mode: Optional[str] = "standard"  # quick | standard | deep | expert
