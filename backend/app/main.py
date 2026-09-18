@@ -95,10 +95,22 @@ app.include_router(v1_platform_router, prefix="/v1")  # Day 79–81: POST /v1/re
 app.include_router(health_router)  # Day 96–100: /health/live, /health/ready, /health, /metrics
 
 
+# Root API Status Endpoint
+@app.get("/", summary="Root API Status", tags=["Health & Monitoring"])
+async def root():
+    return {
+        "service": settings.PROJECT_NAME,
+        "version": settings.VERSION,
+        "status": "online",
+        "docs_url": "/docs",
+        "health_url": "/health/live"
+    }
+
+
 # Mount Static Frontend Files
 frontend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "frontend"))
 if os.path.exists(frontend_dir):
-    app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
+    app.mount("/static", StaticFiles(directory=frontend_dir, html=True), name="frontend")
 
 
 
