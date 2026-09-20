@@ -14,7 +14,7 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// On 401 → try refresh, then retry original request
+// On 401 → try refresh, then retry original request (for authenticated protected requests only)
 let isRefreshing = false;
 let failQueue = [];
 
@@ -31,7 +31,18 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    // Do NOT intercept auth endpoints like /login or /register or /refresh on 401
+    const url = originalRequest?.url || '';
+    const isAuthRoute =
+      url.includes('/auth/login') ||
+      url.includes('/auth/register') ||
+      url.includes('/auth/refresh') ||
+      url.includes('/auth/forgot-password') ||
+      url.includes('/auth/reset-password');
+
+    const refreshToken = localStorage.getItem('refreshToken');
+
+    if (error.response?.status === 401 && !originalRequest._retry && !isAuthRoute && refreshToken) {
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
           failQueue.push({ resolve, reject });
@@ -47,10 +58,11 @@ api.interceptors.response.use(
       isRefreshing = true;
 
       try {
-        const refreshToken = localStorage.getItem('refreshToken');
-        const { data } = await axios.post('/api/auth/refresh', { token: refreshToken });
+        const { data } = await axios.post('/api/auth/refresh', { refreshToken });
         const newToken = data.accessToken || data.token;
+        const newRefresh = data.refreshToken;
         localStorage.setItem('accessToken', newToken);
+        if (newRefresh) localStorage.setItem('refreshToken', newRefresh);
         api.defaults.headers.common.Authorization = `Bearer ${newToken}`;
         processQueue(null, newToken);
         originalRequest.headers.Authorization = `Bearer ${newToken}`;

@@ -57,10 +57,10 @@ export default function LoginPage() {
 
           <form className="auth-form" onSubmit={handleSubmit} noValidate>
             <div className="form-field">
-              <label className="form-label" htmlFor="login-email">// EMAIL ADDRESS</label>
-              <input id="login-email" name="email" type="email" className="form-input"
-                placeholder="operator@deep-research.ai" value={form.email}
-                onChange={handleChange} autoComplete="email" required />
+              <label className="form-label" htmlFor="login-email">// EMAIL OR OPERATOR DESIGNATION</label>
+              <input id="login-email" name="email" type="text" className="form-input"
+                placeholder="operator@deep-research.ai or Operator Name" value={form.email}
+                onChange={handleChange} autoComplete="username" required />
             </div>
             <div className="form-field">
               <label className="form-label" htmlFor="login-password">// ACCESS KEY</label>

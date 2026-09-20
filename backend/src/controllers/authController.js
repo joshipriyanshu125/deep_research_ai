@@ -84,22 +84,30 @@ const register = async (req, res) => {
  */
 const login = async (req, res) => {
     try {
-        const { email, password } = req.body;
+        const { email, password, username, name } = req.body || {};
+        const identifier = (email || username || name || "").trim();
 
         // Validation
-        if (!email || !password) {
+        if (!identifier || !password) {
             return res.status(400).json({
                 success: false,
-                message: "Please provide email and password"
+                message: "Please provide email or operator designation and password"
             });
         }
 
-        // Find user by email and explicitly select password & refreshToken fields
-        const user = await User.findOne({ email: email.toLowerCase() }).select("+password +refreshToken");
+        // Find user by email or name (case-insensitive)
+        const escapedIdentifier = identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const user = await User.findOne({
+            $or: [
+                { email: identifier.toLowerCase() },
+                { name: { $regex: new RegExp(`^${escapedIdentifier}$`, "i") } }
+            ]
+        }).select("+password +refreshToken");
+
         if (!user) {
             return res.status(401).json({
                 success: false,
-                message: "Invalid email or password"
+                message: "Invalid credentials. Please check your email/name and password."
             });
         }
 
@@ -108,7 +116,7 @@ const login = async (req, res) => {
         if (!isMatch) {
             return res.status(401).json({
                 success: false,
-                message: "Invalid email or password"
+                message: "Invalid credentials. Please check your email/name and password."
             });
         }
 
