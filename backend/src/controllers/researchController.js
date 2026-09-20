@@ -22,13 +22,17 @@ const createResearch = async (req, res) => {
             title ||
             (query.length > 80 ? query.substring(0, 77) + "..." : query);
 
+        let normalizedDepth = "standard";
+        if (depth === 1 || depth === "1" || depth === "quick") normalizedDepth = "quick";
+        else if (depth === 3 || depth === "3" || depth === "deep") normalizedDepth = "deep";
+
         // 1. Create research record with 'queued' status
         const research = await Research.create({
             user: req.user._id,
             query: query.trim(),
             title: generatedTitle,
             topic: topic || "",
-            depth: depth || "standard",
+            depth: normalizedDepth,
             isPublic: !!isPublic,
             status: "queued",
             progress: 0,

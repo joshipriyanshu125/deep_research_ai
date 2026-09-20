@@ -60,9 +60,9 @@ export default function QueryInputCard({ onJobCreated, disabled }) {
           </span>
           <select className="styled-select" value={depth}
             onChange={(e) => setDepth(e.target.value)} disabled={loading || disabled}>
-            <option value={1}>Standard · 1 iter</option>
-            <option value={2}>Deep · 2 iters</option>
-            <option value={3}>Comprehensive · 3 iters</option>
+            <option value="quick">Standard · 1 iter</option>
+            <option value="standard">Deep · 2 iters</option>
+            <option value="deep">Comprehensive · 3 iters</option>
           </select>
         </div>
 

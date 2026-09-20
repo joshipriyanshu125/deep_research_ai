@@ -14,9 +14,29 @@ const connectDB = async () => {
         await mongoose.connect(uri);
 
         console.log("MongoDB connected successfully");
+
+        // Clean up legacy id indexes across collections if present
+        try {
+            const db = mongoose.connection.db;
+            const collections = await db.listCollections().toArray();
+            for (const col of collections) {
+                const collection = db.collection(col.name);
+                const indexes = await collection.indexes();
+                for (const idx of indexes) {
+                    if (
+                        idx.name !== "_id_" &&
+                        (idx.key?.id !== undefined || idx.name.includes("id_unique") || idx.name.includes("_id_unique"))
+                    ) {
+                        await collection.dropIndex(idx.name);
+                        console.log(`Auto-cleaned legacy index on [${col.name}]: ${idx.name}`);
+                    }
+                }
+            }
+        } catch (idxErr) {
+            // Non-fatal if index scan fails
+        }
     } catch (error) {
         console.error("MongoDB connection failed:", error.message);
-        // Do not immediately crash the server on initial connection retry
         if (process.env.NODE_ENV === "production") {
             process.exit(1);
         }
