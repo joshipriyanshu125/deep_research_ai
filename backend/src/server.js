@@ -6,6 +6,7 @@ const authRoutes = require("./routes/authRoutes");
 const researchRoutes = require("./routes/researchRoutes");
 const reportRoutes = require("./routes/reportRoutes");
 const adminRoutes = require("./routes/adminRoutes");
+const aiRoutes = require("./routes/aiRoutes");
 
 const app = express();
 
@@ -42,6 +43,13 @@ app.use("/api/reports", reportRoutes);
 
 app.use("/admin", adminRoutes);
 app.use("/api/admin", adminRoutes);
+
+// ── Gemini Quick Answer routes ───────────────────────────────────────────────
+// Canonical endpoint:  POST /api/ai/answer
+// Frontend alias:      POST /api/v1/quick-answer  (matches api/research.js quickAnswer())
+app.use("/ai", aiRoutes);
+app.use("/api/ai", aiRoutes);
+app.use("/api/v1/quick-answer", aiRoutes);
 
 // 404 Handler
 app.use((req, res, next) => {

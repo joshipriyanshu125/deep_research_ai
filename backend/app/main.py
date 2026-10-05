@@ -33,6 +33,7 @@ from app.api.organizations import router as organizations_router
 from app.api.v1_platform import router as v1_platform_router  # Day 79–81 — API Platform
 from app.api.memory import router as memory_router  # Day 85–90 — Memory & Knowledge Graph
 from app.api.health import router as health_router  # Day 96–100 — Production Health & Metrics
+from app.api.quick_answer import router as quick_answer_router  # Query Router — Quick Answer vs Deep Research
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -93,6 +94,7 @@ app.include_router(organizations_router, prefix=api_prefix)
 app.include_router(memory_router, prefix=api_prefix)  # Day 85–90
 app.include_router(v1_platform_router, prefix="/v1")  # Day 79–81: POST /v1/research, GET /v1/usage, etc.
 app.include_router(health_router)  # Day 96–100: /health/live, /health/ready, /health, /metrics
+app.include_router(quick_answer_router, prefix=api_prefix)  # Query Router: /api/v1/quick-answer
 
 
 # Root API Status Endpoint

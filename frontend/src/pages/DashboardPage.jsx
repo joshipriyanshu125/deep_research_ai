@@ -5,8 +5,9 @@ import Sidebar from '../components/layout/Sidebar';
 import QueryInputCard from '../components/research/QueryInputCard';
 import MissionControl from '../components/research/MissionControl';
 import ReportViewer from '../components/research/ReportViewer';
+import QuickAnswerViewer from '../components/research/QuickAnswerViewer';
 import TiltCard from '../components/ui/TiltCard';
-import { Cpu, FlaskConical, Network, CheckCircle2, Search, FileText } from 'lucide-react';
+import { Cpu, FlaskConical, Network, CheckCircle2, Search, FileText, Zap } from 'lucide-react';
 
 const AGENTS = [
   { icon: <Cpu size={12} />, label: 'Planner' },
@@ -22,6 +23,9 @@ export default function DashboardPage() {
   const [activeJobId, setActiveJobId] = useState(null);
   const { job, report, isPolling, error, startPolling } = useResearch();
 
+  // Quick Answer state
+  const [quickAnswerData, setQuickAnswerData] = useState(null); // { answer, query, model }
+
   const loadHistory = async () => {
     try {
       const { data } = await getAllResearch();
@@ -34,13 +38,31 @@ export default function DashboardPage() {
 
   useEffect(() => { loadHistory(); }, []);
 
+  // Called when Deep Research job is created
   const handleJobCreated = (jobId) => {
+    setQuickAnswerData(null); // clear any previous quick answer
     setActiveJobId(jobId);
     startPolling(jobId);
     loadHistory();
   };
 
+  // Called when Quick Answer is returned by the router
+  const handleQuickAnswer = (data) => {
+    setQuickAnswerData(data);
+    setActiveJobId(null); // clear any running deep job display
+  };
+
+  // Called when user clicks "Run Deep Research Instead" from QuickAnswerViewer
+  const handleUpgradeToDeep = () => {
+    if (!quickAnswerData) return;
+    // Pre-fill the textarea by storing the query; the user re-submits in deep mode.
+    // Since QueryInputCard manages its own state, we just clear quick answer
+    // and let the user re-submit. A toast/hint would improve UX further.
+    setQuickAnswerData(null);
+  };
+
   const handleSelectJob = (jobId) => {
+    setQuickAnswerData(null);
     setActiveJobId(jobId);
     startPolling(jobId);
   };
@@ -51,6 +73,7 @@ export default function DashboardPage() {
 
   const showMission = isPolling || (job && !report);
   const showReport = !!report;
+  const showQuickAnswer = !!quickAnswerData && !showMission && !showReport;
 
   return (
     <div className="app-layout">
@@ -73,19 +96,38 @@ export default function DashboardPage() {
                 {a.icon} {a.label}
               </div>
             ))}
+            <div className="badge badge--quick" style={{ padding: '5px 12px', gap: 5, fontSize: '0.7rem' }}>
+              <Zap size={12} fill="currentColor" /> Quick Answer
+            </div>
           </div>
         </section>
 
         {/* ── Query Input ── */}
         <TiltCard intensity={6}>
           <div className="holo-card query-card">
-            <QueryInputCard onJobCreated={handleJobCreated} disabled={isPolling} />
+            <QueryInputCard
+              onJobCreated={handleJobCreated}
+              onQuickAnswer={handleQuickAnswer}
+              disabled={isPolling}
+            />
           </div>
         </TiltCard>
 
         {/* ── Error ── */}
         {error && !isPolling && (
           <div className="auth-error-box">⚠ {error}</div>
+        )}
+
+        {/* ── Quick Answer ── */}
+        {showQuickAnswer && (
+          <TiltCard intensity={3}>
+            <QuickAnswerViewer
+              answer={quickAnswerData.answer}
+              query={quickAnswerData.query}
+              model={quickAnswerData.model}
+              onUpgrade={handleUpgradeToDeep}
+            />
+          </TiltCard>
         )}
 
         {/* ── Mission Control ── */}

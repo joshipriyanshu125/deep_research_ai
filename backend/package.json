@@ -10,6 +10,7 @@
     "test:lifecycle": "node tests/lifecycle.test.js"
   },
   "dependencies": {
+    "@google/genai": "^2.27.0",
     "bcryptjs": "^3.0.3",
     "bullmq": "^6.3.4",
     "dotenv": "^17.4.2",
