@@ -29,7 +29,13 @@ export default function LoginPage() {
       );
       navigate('/dashboard');
     } catch (err) {
-      setError(err.response?.data?.message || 'Invalid credentials. Please try again.');
+      const msg =
+        err.response?.data?.message ||
+        err.response?.data?.error ||
+        (err.code === 'ERR_NETWORK' || !err.response
+          ? 'Cannot connect to backend server. Please make sure the backend is running.'
+          : 'Invalid credentials. Please try again.');
+      setError(msg);
     } finally {
       setLoading(false);
     }

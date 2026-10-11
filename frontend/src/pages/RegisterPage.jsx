@@ -62,7 +62,13 @@ export default function RegisterPage() {
       );
       navigate('/dashboard');
     } catch (err) {
-      setServerError(err.response?.data?.message || 'Registration failed. Please try again.');
+      const msg =
+        err.response?.data?.message ||
+        err.response?.data?.error ||
+        (err.code === 'ERR_NETWORK' || !err.response
+          ? 'Cannot connect to backend server. Please make sure the backend is running.'
+          : 'Registration failed. Please try again.');
+      setServerError(msg);
     } finally {
       setLoading(false);
     }
