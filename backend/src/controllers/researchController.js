@@ -9,12 +9,12 @@ const researchQueue = require("../services/researchQueue");
  */
 const createResearch = async (req, res) => {
     try {
-        const { query, title, topic, depth, isPublic } = req.body;
+        const { query, title, topic, depth, breadth, categories, isPublic } = req.body;
 
-        if (!query) {
+        if (typeof query !== "string" || !query.trim() || query.length > 2000) {
             return res.status(400).json({
                 success: false,
-                message: "Please provide a query for the research"
+                message: "Please provide a research query between 1 and 2000 characters"
             });
         }
 
@@ -33,6 +33,8 @@ const createResearch = async (req, res) => {
             title: generatedTitle,
             topic: topic || "",
             depth: normalizedDepth,
+            breadth: Number.isFinite(Number(breadth)) ? Math.max(1, Math.min(8, Number(breadth))) : 3,
+            categories: Array.isArray(categories) ? categories : ["web", "academic", "market"],
             isPublic: !!isPublic,
             status: "queued",
             progress: 0,

@@ -27,6 +27,9 @@ export default function MissionControl({ job, jobId }) {
   const stepText = getStepText(job);
   const tasks = job?.tasks || job?.subTasks || job?.plan?.tasks || [];
   const sources = job?.sources || job?.evidence || [];
+  const evidenceCount = job?.evidence?.length || job?.analysis?.evidenceCount || 0;
+  const factCheckCount = job?.factChecks?.length || 0;
+  const citationCount = job?.citations?.length || 0;
 
   return (
     <>
@@ -68,6 +71,17 @@ export default function MissionControl({ job, jobId }) {
             <SourcesList sources={sources} />
           </div>
         </div>
+      </div>
+      <div className="pipeline-summary" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+        {[
+          ['PLAN', tasks.length],
+          ['SOURCES', sources.length],
+          ['EVIDENCE', evidenceCount],
+          ['FACT CHECKS', factCheckCount],
+          ['CITATIONS', citationCount],
+        ].map(([label, value]) => (
+          <span className="badge" key={label}>{label}: {value}</span>
+        ))}
       </div>
     </>
   );

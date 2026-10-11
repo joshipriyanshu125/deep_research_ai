@@ -124,6 +124,52 @@ async function askGemini(question) {
     throw err;
 }
 
+/**
+ * Generate a report from already collected evidence. The prompt deliberately
+ * includes the evidence and citation identifiers so the model is used as a
+ * grounded writer rather than as an unsourced search engine.
+ */
+async function askGroundedGemini({ query, analysis, evidence, factChecks, citations, signal }) {
+    const client = getClient();
+    const modelName = getGeminiModel();
+    const evidenceText = (evidence || []).slice(0, 40).map((item) =>
+        `- [${item.id}] ${item.claim} | quote: ${item.quote} | source: ${item.sourceUrl}`
+    ).join("\n");
+    const citationText = (citations || []).map((item) => `[${item.index}] ${item.title} — ${item.url}`).join("\n");
+    const prompt = `You are the report writer in a research pipeline. Write a balanced Markdown report for this query: ${query}
+
+Rules: use only the evidence supplied below; do not invent facts or citations; mark single-source or unverified claims as limitations; include inline citation markers such as [1]; include sections Executive Summary, Key Findings, Analysis, Fact Check, Limitations, and Sources & Citations.
+
+Analysis:
+${JSON.stringify(analysis)}
+
+Evidence:
+${evidenceText || "No evidence was extracted."}
+
+Fact checks:
+${JSON.stringify(factChecks || [])}
+
+Citation index:
+${citationText || "No citations available."}`;
+    const controller = new AbortController();
+    const onAbort = () => controller.abort();
+    signal?.addEventListener("abort", onAbort, { once: true });
+    try {
+        const response = await client.models.generateContent({
+            model: modelName,
+            contents: prompt,
+            config: { temperature: 0.2 }
+        });
+        if (signal?.aborted) throw new Error("Research report generation cancelled");
+        const text = response?.text;
+        if (!text || !text.trim()) throw new Error("Gemini returned an empty report");
+        return text.trim();
+    } finally {
+        signal?.removeEventListener?.("abort", onAbort);
+        controller.abort();
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -190,6 +236,7 @@ function _mapGeminiError(err) {
 
 module.exports = {
     askGemini,
+    askGroundedGemini,
     MAX_QUESTION_LENGTH,
     getGeminiModel,
 };

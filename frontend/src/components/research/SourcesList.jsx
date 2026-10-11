@@ -10,8 +10,9 @@ export default function SourcesList({ sources }) {
 
   const scoreColor = (score) => {
     if (!score && score !== 0) return '';
-    if (score >= 8) return 'success';
-    if (score >= 5) return '';
+    const normalized = score <= 1 ? score * 10 : score;
+    if (normalized >= 8) return 'success';
+    if (normalized >= 5) return '';
     return 'amber';
   };
 
@@ -28,14 +29,21 @@ export default function SourcesList({ sources }) {
             >
               {s.title || s.url}
             </a>
-            {(s.credibility_score !== undefined || s.score !== undefined) && (
-              <span className={`badge ${scoreColor(s.credibility_score ?? s.score)}`}>
-                ★ {(s.credibility_score ?? s.score).toFixed(1)}
+            {(s.credibility_score !== undefined || s.relevanceScore !== undefined || s.score !== undefined) && (
+              <span className={`badge ${scoreColor(s.credibility_score ?? s.relevanceScore ?? s.score)}`}>
+                ★ {((s.credibility_score ?? s.relevanceScore ?? s.score) <= 1
+                  ? (s.credibility_score ?? s.relevanceScore ?? s.score) * 10
+                  : (s.credibility_score ?? s.relevanceScore ?? s.score)).toFixed(1)}
               </span>
             )}
           </div>
           {s.snippet && (
             <div className="source-snippet">{s.snippet}</div>
+          )}
+          {(s.sourceType || s.category || s.extractionStatus) && (
+            <div className="source-snippet" style={{ opacity: 0.7 }}>
+              {(s.sourceType || s.category || 'source').toUpperCase()} · {s.extractionStatus || 'collected'}
+            </div>
           )}
         </div>
       ))}

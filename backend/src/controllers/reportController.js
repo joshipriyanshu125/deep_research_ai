@@ -76,6 +76,9 @@ const getAllReports = async (req, res) => {
         } else {
             filter.user = req.user._id;
         }
+        if (req.query.researchId) {
+            filter.research = req.query.researchId;
+        }
 
         const reports = await Report.find(filter)
             .populate("user", "name email role")

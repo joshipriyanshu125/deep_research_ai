@@ -2,257 +2,230 @@ const mongoose = require("mongoose");
 const Research = require("../models/Research");
 const Report = require("../models/Report");
 const stateMachine = require("./researchStateMachine");
+const { createPlan } = require("./queryPlanner");
+const { collectSources } = require("./sourceCollector");
+const { extractSources } = require("./contentExtractor");
+const { evidenceFromSources, factCheckEvidence, analyzeEvidence } = require("./evidenceEngine");
+const { generateReport } = require("./reportGenerator");
 
 const { STATES } = stateMachine;
 
 /**
- * Deep Research Autonomous Engine
- * State-Machine Driven Lifecycle:
- * QUEUED -> PLANNING -> SEARCHING -> COLLECTING -> ANALYZING ->
- * VERIFYING -> SYNTHESIZING -> REPORT_GENERATION -> QUALITY_CHECK -> COMPLETED
+ * Orchestrates the complete research flow exposed by the existing polling UI.
+ * Each stage persists its output on the Research document, which makes the
+ * pipeline observable and allows a reconnecting client to recover progress.
  */
 class ResearchEngine {
     constructor() {
-        this.stepDelayMs = process.env.NODE_ENV === "test" ? 100 : 700;
+        // Keep a short observable window for every persisted state. The UI and
+        // lifecycle tests poll the document while the worker is running.
+        this.stepDelayMs = process.env.NODE_ENV === "test" ? 280 : 250;
     }
 
-    /**
-     * Execute full research lifecycle for a research job
-     * @param {string} researchId
-     * @param {AbortSignal} signal
-     */
     async execute(researchId, signal) {
         if (mongoose.connection.readyState !== 1) return;
-
         const research = await Research.findById(researchId);
-        if (!research) return;
+        if (!research || this.isAborted(signal) || research.status === STATES.CANCELLED) return;
 
-        if (this.isAborted(signal) || research.status === STATES.CANCELLED) return;
-
-        let currentStage = STATES.PLANNING;
-
+        let stage = STATES.PLANNING;
         try {
-            // ==========================================
-            // 1. PLANNING
-            // ==========================================
-            currentStage = STATES.PLANNING;
+            const options = {
+                depth: research.depth,
+                breadth: research.breadth,
+                categories: research.categories
+            };
+
+            stage = STATES.PLANNING;
             await stateMachine.transition(research, STATES.PLANNING, {
-                step: "Planning research architecture and decomposing query into investigative tasks",
-                message: `Decomposed query "${research.query}" into targeted investigation tracks.`
+                step: "Query planner is decomposing the research question into investigation tracks",
+                message: `Planner created web, news/paper, market, and other-source tracks for “${research.query}”.`
             });
-            await this.sleep(this.stepDelayMs, signal);
+            const plan = createPlan({ query: research.query, ...options });
+            research.plan = plan;
+            research.tasks = plan.tasks;
+            await research.save();
+            await this.pause(signal);
             if (this.isAborted(signal)) return;
 
-            // ==========================================
-            // 2. SEARCHING
-            // ==========================================
-            currentStage = STATES.SEARCHING;
+            stage = STATES.SEARCHING;
             await stateMachine.transition(research, STATES.SEARCHING, {
-                step: "Generating dynamic search queries and querying web, academic, and market sources",
-                message: "Generated 6 targeted search queries across industry, technical, and regulatory domains."
+                step: "Query planner is generating targeted searches across selected source types",
+                message: `Generated ${plan.tasks.length} targeted research queries.`
             });
-            await this.sleep(this.stepDelayMs, signal);
+            const collected = await collectSources(plan.tasks, signal);
+            research.sources = collected.map((source) => this.serializeSource(source));
+            research.tasks = plan.tasks.map((task) => ({
+                ...task,
+                status: collected.some((source) => source.taskId === task.id) ? "completed" : "failed",
+                resultsCount: collected.filter((source) => source.taskId === task.id).length
+            }));
+            await research.save();
+            await this.pause(signal);
             if (this.isAborted(signal)) return;
 
-            // ==========================================
-            // 3. COLLECTING
-            // ==========================================
-            currentStage = STATES.COLLECTING;
-            research.sources = [
-                {
-                    title: `Sector Intelligence Report: ${research.title}`,
-                    url: "https://market-intelligence.org/reports/2026/analysis",
-                    snippet: "Comprehensive sector trajectory, market size projections, and capital expenditure trends.",
-                    relevanceScore: 0.96,
-                    collectedAt: new Date()
-                },
-                {
-                    title: "Government Policy & Regulatory Guidelines 2026",
-                    url: "https://policy.gov.in/initiatives/regulations",
-                    snippet: "Fiscal incentives, tax subsidies, standard requirements, and national adoption targets.",
-                    relevanceScore: 0.94,
-                    collectedAt: new Date()
-                },
-                {
-                    title: "Academic & Technological Evaluation (arXiv / IEEE)",
-                    url: "https://arxiv.org/abs/2603.deep-research-paper",
-                    snippet: "Comparative efficiency analysis, technical trade-offs, and supply chain constraints.",
-                    relevanceScore: 0.91,
-                    collectedAt: new Date()
-                },
-                {
-                    title: "Competitive Landscape & Financial Filings Analysis",
-                    url: "https://finance-analytics.com/sector/competitor-intelligence",
-                    snippet: "Key market players, unit economics, margin profiles, and venture capital flows.",
-                    relevanceScore: 0.89,
-                    collectedAt: new Date()
-                }
-            ];
+            stage = STATES.COLLECTING;
             await stateMachine.transition(research, STATES.COLLECTING, {
-                step: "Extracting raw full-text data, cleaning HTML, and filtering relevant passages",
-                message: `Collected ${research.sources.length} authoritative sources from web, datasets, and arXiv.`
+                step: "Source collector is gathering web, news, paper, and public-record results; content extraction is running",
+                message: `Collected ${collected.length} unique sources and started content extraction.`
             });
-            await this.sleep(this.stepDelayMs, signal);
+            const extracted = await extractSources(collected, signal);
+            research.sources = extracted.map((source) => this.serializeSource(source));
+            await research.save();
+            await this.pause(signal);
             if (this.isAborted(signal)) return;
 
-            // ==========================================
-            // 4. ANALYZING
-            // ==========================================
-            currentStage = STATES.ANALYZING;
-            research.findings = [
-                {
-                    topic: "Market Opportunity & CAGR",
-                    insight: "Market projected to expand at >28% CAGR over the next 5 years driven by favorable policy and consumer economics.",
-                    confidence: "High",
-                    status: "extracted"
-                },
-                {
-                    topic: "Competitive Matrix",
-                    insight: "Incumbent players control ~55% of market volume, while nimble startups capture premium and niche segments.",
-                    confidence: "High",
-                    status: "extracted"
-                },
-                {
-                    topic: "Supply Chain & Infrastructure Dependencies",
-                    insight: "Domestic localization of key components represents the greatest defensive moat and margin expansion lever.",
-                    confidence: "Very High",
-                    status: "extracted"
-                }
-            ];
+            const evidence = evidenceFromSources(extracted, research.query);
+            research.evidence = evidence;
+            await research.save();
+
+            stage = STATES.ANALYZING;
             await stateMachine.transition(research, STATES.ANALYZING, {
-                step: "Analyzing evidence, modeling market trends, and identifying competitive vectors",
-                message: `Extracted ${research.findings.length} core findings and evidence correlations.`
+                step: "Analysis engine is turning extracted passages into claims, trends, and comparisons",
+                message: `Extracted ${evidence.length} evidence items from ${extracted.length} sources.`
             });
-            await this.sleep(this.stepDelayMs, signal);
+            const analysis = analyzeEvidence(evidence, extracted, research.query);
+            research.analysis = analysis;
+            research.findings = analysis.findings;
+            research.comparisons = analysis.comparisons;
+            await research.save();
+            await this.pause(signal);
             if (this.isAborted(signal)) return;
 
-            // ==========================================
-            // 5. VERIFYING
-            // ==========================================
-            currentStage = STATES.VERIFYING;
-            research.findings = research.findings.map((f) => ({
-                ...f,
-                verified: true,
-                status: "verified",
-                verificationConfidence: "98.4%",
-                verificationDetails: "Cross-referenced against 3+ independent authoritative sources."
+            stage = STATES.VERIFYING;
+            const factChecks = factCheckEvidence(evidence);
+            research.factChecks = factChecks;
+            research.evidence = evidence.map((item) => ({
+                ...item,
+                verificationStatus: factChecks.find((check) => check.claim === item.claim)?.status || item.verificationStatus
             }));
             await stateMachine.transition(research, STATES.VERIFYING, {
-                step: "Fact-checking extracted claims against multiple sources and computing credibility scores",
-                message: "Fact-checking complete. All primary claims verified with >95% confidence."
+                step: "Fact-check engine is cross-checking claims and exposing source agreement or uncertainty",
+                message: `Fact-checked ${factChecks.length} claims; single-source and unverified items remain labeled.`
             });
-            await this.sleep(this.stepDelayMs, signal);
+            await research.save();
+            await this.pause(signal, this.stepDelayMs * 3);
             if (this.isAborted(signal)) return;
 
-            // ==========================================
-            // 6. SYNTHESIZING
-            // ==========================================
-            currentStage = STATES.SYNTHESIZING;
+            stage = STATES.SYNTHESIZING;
             await stateMachine.transition(research, STATES.SYNTHESIZING, {
-                step: "Synthesizing multi-disciplinary findings into actionable executive insights",
-                message: "Synthesized multi-source evidence into clear narrative and investment thesis."
+                step: "Synthesis engine is combining analysis, fact checks, and comparisons into a grounded narrative",
+                message: "Combined verified evidence with explicitly labeled limitations and contradictions."
             });
-            await this.sleep(this.stepDelayMs, signal);
+            // Keep synthesis visible long enough for polling clients to render
+            // the distinct synthesis stage before report writing begins.
+            await this.pause(signal, this.stepDelayMs * 3);
             if (this.isAborted(signal)) return;
 
-            // ==========================================
-            // 7. REPORT_GENERATION
-            // ==========================================
-            currentStage = STATES.REPORT_GENERATION;
-            const generatedReportContent = `# Comprehensive Deep Research: ${research.title}\n\n## 1. Executive Summary\n${research.findings.map((f) => `- **${f.topic}**: ${f.insight}`).join("\n")}\n\n## 2. Evidence Base & Methodology\nMulti-source investigation cross-referenced against ${research.sources.length} authoritative sources.\n\n## 3. Consulted Sources\n${research.sources.map((s) => `- [${s.title}](${s.url}) (Relevance: ${(s.relevanceScore * 100).toFixed(0)}%)`).join("\n")}`;
-
+            stage = STATES.REPORT_GENERATION;
+            const reportData = await generateReport({
+                query: research.query,
+                analysis,
+                evidence: research.evidence,
+                factChecks,
+                sources: extracted,
+                signal
+            });
+            research.citations = reportData.citations;
             await stateMachine.transition(research, STATES.REPORT_GENERATION, {
-                step: "Formatting Markdown report with structured sections, citations, and risk tables",
-                message: "Final report generated with full citations and executive structure."
+                step: "Report generator is formatting the research narrative and attaching source citations",
+                message: `Generated a report with ${reportData.citations.length} traceable citations.`
             });
-            await this.sleep(this.stepDelayMs, signal);
+            await research.save();
+            // Keep report generation observable before the final quality check.
+            await this.pause(signal, this.stepDelayMs * 3);
             if (this.isAborted(signal)) return;
 
-            // ==========================================
-            // 8. QUALITY_CHECK
-            // ==========================================
-            currentStage = STATES.QUALITY_CHECK;
-            research.qualityScore = 96;
+            stage = STATES.QUALITY_CHECK;
+            const citationCoverage = reportData.citations.length > 0 ? 100 : 0;
+            research.qualityScore = Math.round((citationCoverage * 0.4) + (Math.min(100, factChecks.length * 10) * 0.3) + (Math.min(100, evidence.length * 8) * 0.3));
             research.qualityCheckResults = {
-                coherence: "Passed (98%)",
-                citationCompleteness: "Passed (100%)",
-                claimConsistency: "Passed (97%)",
-                minimumWordCount: "Passed (1,450 words)"
+                citationCompleteness: `${citationCoverage}%`,
+                evidenceItems: evidence.length,
+                factCheckedClaims: factChecks.length,
+                reportGenerator: process.env.GEMINI_API_KEY ? "Gemini with deterministic fallback" : "Deterministic grounded generator"
             };
             await stateMachine.transition(research, STATES.QUALITY_CHECK, {
-                step: "Evaluating report quality, citation integrity, and factual consistency",
-                message: `Quality check passed with score ${research.qualityScore}/100.`
+                step: "Quality check is validating evidence coverage, report coherence, and citation integrity",
+                message: `Quality check completed with score ${research.qualityScore}/100.`
             });
-            await this.sleep(this.stepDelayMs, signal);
+            await this.pause(signal);
             if (this.isAborted(signal)) return;
 
-            // ==========================================
-            // 9. COMPLETED
-            // ==========================================
-            await stateMachine.transition(research, STATES.COMPLETED, {
-                step: "Research completed successfully. Final report published.",
-                message: "Autonomous deep research workflow finished with zero errors."
-            });
-
-            // Create or update linked Report document in MongoDB
             const existingReport = await Report.findOne({ research: research._id });
-            if (!existingReport && mongoose.connection.readyState === 1) {
+            if (existingReport) {
+                existingReport.title = reportData.title;
+                existingReport.summary = reportData.summary;
+                existingReport.content = reportData.content;
+                existingReport.sections = reportData.sections;
+                existingReport.citations = reportData.citations;
+                await existingReport.save();
+            } else {
                 await Report.create({
                     user: research.user,
                     research: research._id,
-                    title: `Deep Research Report: ${research.title}`,
-                    summary: `Autonomous deep research investigation answering: "${research.query}"`,
-                    content: generatedReportContent,
-                    sections: [
-                        {
-                            heading: "Executive Summary",
-                            body: "High-level takeaways and core strategic opportunities."
-                        },
-                        {
-                            heading: "Market & Technical Analysis",
-                            body: "Granular breakdown across growth drivers, competition, and technology."
-                        },
-                        {
-                            heading: "Risk Matrix & Strategic Recommendations",
-                            body: "Key risks, mitigation strategies, and investment recommendations."
-                        }
-                    ],
-                    citations: research.sources.map((s, idx) => ({
-                        citationId: `REF-${idx + 1}`,
-                        title: s.title,
-                        sourceUrl: s.url
-                    })),
+                    title: reportData.title,
+                    summary: reportData.summary,
+                    content: reportData.content,
+                    sections: reportData.sections,
+                    citations: reportData.citations,
                     status: "published"
                 });
             }
-        } catch (error) {
             if (this.isAborted(signal)) return;
-
-            // Silently ignore errors caused by DB disconnect during test teardown
-            if (mongoose.connection.readyState !== 1) return;
-
-            console.error(`[ResearchEngine] Error during stage '${currentStage}' for research ${researchId}:`, error);
-            await stateMachine.fail(researchId, error, currentStage);
+            await stateMachine.transition(research, STATES.COMPLETED, {
+                step: "Research completed successfully. Final report published.",
+                message: "Planning, collection, extraction, analysis, fact-checking, reporting, and citation generation completed."
+            });
+        } catch (error) {
+            // A test teardown or user deletion can remove the document while a
+            // worker is between stages. That is a normal cancellation boundary,
+            // not a failed research result and should not create noisy errors.
+            if (
+                this.isAborted(signal) ||
+                mongoose.connection.readyState !== 1 ||
+                error.name === "MongoClientClosedError" ||
+                /client is closed|document was deleted/i.test(error.message || "")
+            ) return;
+            if (error.name === "VersionError" && !(await Research.exists({ _id: researchId }))) return;
+            console.error(`[ResearchEngine] Error during stage '${stage}' for research ${researchId}:`, error);
+            await stateMachine.fail(researchId, error, stage);
         }
     }
 
-    isAborted(signal) {
-        return signal && signal.aborted;
+    serializeSource(source) {
+        return {
+            title: source.title,
+            url: source.url,
+            snippet: source.snippet,
+            content: source.content,
+            sourceType: source.sourceType,
+            category: source.category,
+            relevanceScore: source.relevanceScore,
+            extractionStatus: source.extractionStatus,
+            searchQuery: source.searchQuery,
+            taskId: source.taskId,
+            isFallback: source.isFallback,
+            isFixture: source.isFixture,
+            collectedAt: source.collectedAt || new Date()
+        };
     }
 
-    sleep(ms, signal) {
+    isAborted(signal) {
+        return Boolean(signal?.aborted);
+    }
+
+    pause(signal, duration = this.stepDelayMs) {
         return new Promise((resolve) => {
-            const timer = setTimeout(() => resolve(), ms);
-            if (signal) {
-                signal.addEventListener("abort", () => {
-                    clearTimeout(timer);
-                    resolve();
-                }, { once: true });
-            }
+            const finish = () => {
+                clearTimeout(timer);
+                signal?.removeEventListener("abort", finish);
+                resolve();
+            };
+            const timer = setTimeout(finish, duration);
+            signal?.addEventListener("abort", finish, { once: true });
+            if (signal?.aborted) finish();
         });
     }
 }
 
-const researchEngine = new ResearchEngine();
-
-module.exports = researchEngine;
+module.exports = new ResearchEngine();

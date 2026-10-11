@@ -19,11 +19,12 @@ export default function ReportViewer({ report }) {
   if (execSummary && !markdownContent.includes(execSummary)) {
     fullMarkdown = `> **Executive Summary**: ${execSummary}\n\n${markdownContent}`;
   }
-  if (citations.length > 0) {
+  if (citations.length > 0 && !/^## (?:Sources & Citations|References & Sources)/m.test(markdownContent)) {
     fullMarkdown += `\n\n## References & Sources\n`;
     citations.forEach((c, i) => {
       const idx = c.index ?? i + 1;
-      fullMarkdown += `\n**[${idx}]** [${c.title || c.url}](${c.url}) — *${c.source_type || c.sourceType || 'web'}*\n`;
+      const url = c.url || c.sourceUrl;
+      fullMarkdown += `\n**[${idx}]** [${c.title || url}](${url}) — *${c.source_type || c.sourceType || 'web'}*\n`;
       if (c.snippet) fullMarkdown += `> ${c.snippet}\n`;
     });
   }

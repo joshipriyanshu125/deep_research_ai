@@ -101,6 +101,24 @@ const researchSchema = new mongoose.Schema(
             enum: ["quick", "standard", "deep"],
             default: "standard"
         },
+        breadth: {
+            type: Number,
+            min: 1,
+            max: 8,
+            default: 3
+        },
+        categories: {
+            type: [String],
+            default: ["web", "academic", "market"]
+        },
+        plan: {
+            type: mongoose.Schema.Types.Mixed,
+            default: null
+        },
+        tasks: {
+            type: [mongoose.Schema.Types.Mixed],
+            default: []
+        },
         findings: {
             type: [mongoose.Schema.Types.Mixed],
             default: []
@@ -111,10 +129,38 @@ const researchSchema = new mongoose.Schema(
                     title: String,
                     url: String,
                     snippet: String,
+                    content: String,
+                    sourceType: String,
+                    category: String,
+                    extractionStatus: String,
+                    searchQuery: String,
+                    taskId: String,
+                    isFallback: Boolean,
+                    isFixture: Boolean,
                     relevanceScore: Number,
                     collectedAt: { type: Date, default: Date.now }
                 }
             ],
+            default: []
+        },
+        evidence: {
+            type: [mongoose.Schema.Types.Mixed],
+            default: []
+        },
+        analysis: {
+            type: mongoose.Schema.Types.Mixed,
+            default: null
+        },
+        comparisons: {
+            type: [mongoose.Schema.Types.Mixed],
+            default: []
+        },
+        factChecks: {
+            type: [mongoose.Schema.Types.Mixed],
+            default: []
+        },
+        citations: {
+            type: [mongoose.Schema.Types.Mixed],
             default: []
         },
         qualityScore: {

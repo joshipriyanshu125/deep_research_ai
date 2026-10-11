@@ -18,7 +18,7 @@ import { quickAnswer } from '../../api/research';
 export default function QueryInputCard({ onJobCreated, onQuickAnswer, disabled }) {
   const [query, setQuery] = useState('');
   const [mode, setMode] = useState('auto'); // 'auto' | 'quick' | 'deep'
-  const [depth, setDepth] = useState(2);
+  const [depth, setDepth] = useState('standard');
   const [breadth, setBreadth] = useState(3);
   const [categories, setCategories] = useState({ web: true, academic: true, market: true });
   const [loading, setLoading] = useState(false);
@@ -28,6 +28,7 @@ export default function QueryInputCard({ onJobCreated, onQuickAnswer, disabled }
     setCategories((prev) => ({ ...prev, [key]: !prev[key] }));
 
   const handleSubmit = async () => {
+    if (loading || disabled) return;
     const trimmed = query.trim();
     if (!trimmed) { setError('Please enter a question or research query.'); return; }
     setError('');
@@ -57,7 +58,7 @@ export default function QueryInputCard({ onJobCreated, onQuickAnswer, disabled }
       const cats = Object.entries(categories).filter(([, v]) => v).map(([k]) => k);
       const { data } = await createResearch({
         query: trimmed,
-        depth: Number(depth),
+        depth,
         breadth: Number(breadth),
         categories: cats,
       });
@@ -149,9 +150,9 @@ export default function QueryInputCard({ onJobCreated, onQuickAnswer, disabled }
             </span>
             <select className="styled-select" value={depth}
               onChange={(e) => setDepth(e.target.value)} disabled={loading || disabled}>
-              <option value="quick">Standard · 1 iter</option>
-              <option value="standard">Deep · 2 iters</option>
-              <option value="deep">Comprehensive · 3 iters</option>
+              <option value="quick">Quick</option>
+              <option value="standard">Standard</option>
+              <option value="deep">Comprehensive</option>
             </select>
           </div>
 
@@ -176,6 +177,10 @@ export default function QueryInputCard({ onJobCreated, onQuickAnswer, disabled }
             <label className="check-item">
               <input type="checkbox" checked={categories.market} onChange={() => toggleCategory('market')} disabled={loading || disabled} />
               <TrendingUp size={11} /> MARKET
+            </label>
+            <label className="check-item">
+              <input type="checkbox" checked={!!categories.other} onChange={() => toggleCategory('other')} disabled={loading || disabled} />
+              <Globe size={11} /> OTHER
             </label>
           </div>
 

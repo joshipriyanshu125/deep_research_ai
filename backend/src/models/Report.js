@@ -39,9 +39,14 @@ const reportSchema = new mongoose.Schema(
         citations: {
             type: [
                 {
+                    index: Number,
                     citationId: String,
                     sourceUrl: String,
-                    title: String
+                    url: String,
+                    title: String,
+                    sourceType: String,
+                    snippet: String,
+                    evidenceIds: [String]
                 }
             ],
             default: []
