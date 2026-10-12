@@ -20,7 +20,7 @@ app.use(express.urlencoded({ extended: true }));
 connectDB();
 
 // Root route
-app.get("/", (req, res) => {
+app.get(["/", "/api"], (req, res) => {
     res.json({
         message: "Deep Research AI Backend is running",
         version: "1.0.0",
@@ -33,7 +33,7 @@ app.get("/", (req, res) => {
     });
 });
 
-app.get("/health", (req, res) => {
+app.get(["/health", "/api/health"], (req, res) => {
     const databaseConnected = mongoose.connection.readyState === 1;
     res.status(databaseConnected ? 200 : 503).json({
         status: databaseConnected ? "ok" : "starting",
