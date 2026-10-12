@@ -26,10 +26,30 @@ const processQueue = (error, token = null) => {
   failQueue = [];
 };
 
+const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
+
+    // The API and MongoDB may still be starting when Vite becomes ready.
+    // Retry only transient connection/startup failures; authentication
+    // failures (401) must still reach the login screen immediately.
+    const transientStatus = [502, 503, 504].includes(error.response?.status);
+    const transientNetworkError = !error.response && [
+      'ERR_NETWORK',
+      'ECONNREFUSED',
+      'ECONNRESET',
+      'ETIMEDOUT',
+    ].includes(error.code);
+    const retryCount = originalRequest?._connectionRetryCount || 0;
+
+    if (originalRequest && (transientStatus || transientNetworkError) && retryCount < 6) {
+      originalRequest._connectionRetryCount = retryCount + 1;
+      await wait(250 * (2 ** retryCount));
+      return api(originalRequest);
+    }
 
     // Do NOT intercept auth endpoints like /login or /register or /refresh on 401
     const url = originalRequest?.url || '';

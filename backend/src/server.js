@@ -7,6 +7,8 @@ const researchRoutes = require("./routes/researchRoutes");
 const reportRoutes = require("./routes/reportRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 const aiRoutes = require("./routes/aiRoutes");
+const databaseReady = require("./middleware/databaseReady");
+const mongoose = require("mongoose");
 
 const app = express();
 
@@ -31,9 +33,17 @@ app.get("/", (req, res) => {
     });
 });
 
+app.get("/health", (req, res) => {
+    const databaseConnected = mongoose.connection.readyState === 1;
+    res.status(databaseConnected ? 200 : 503).json({
+        status: databaseConnected ? "ok" : "starting",
+        database: databaseConnected ? "connected" : "connecting"
+    });
+});
+
 // Mount Routes (mounted at both standard and /api/ prefixed paths)
-app.use("/auth", authRoutes);
-app.use("/api/auth", authRoutes);
+app.use("/auth", databaseReady, authRoutes);
+app.use("/api/auth", databaseReady, authRoutes);
 
 app.use("/research", researchRoutes);
 app.use("/api/research", researchRoutes);
@@ -71,8 +81,8 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 5000;
 
 if (process.env.NODE_ENV !== "test") {
-    app.listen(PORT, () => {
-        console.log(`Server running on port ${PORT}`);
+    app.listen(PORT, "127.0.0.1", () => {
+        console.log(`Server running on http://127.0.0.1:${PORT}`);
     });
 }
 
