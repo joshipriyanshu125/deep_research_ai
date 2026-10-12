@@ -8,6 +8,7 @@ Architecture:
 
 import asyncio
 import json
+import os
 import re
 from typing import Optional
 
@@ -104,7 +105,41 @@ def classify_query(query: str) -> str:
 # ---------------------------------------------------------------------------
 
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-QUICK_ANSWER_MODEL = "gemini-1.5-flash"   # free-tier friendly
+DEFAULT_QUICK_ANSWER_MODEL = "gemini-flash-lite-latest"
+QUICK_ANSWER_FALLBACK_MODELS = (
+    "gemini-flash-lite-latest",
+    "gemini-flash-latest",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+)
+
+
+def get_quick_answer_models() -> list[str]:
+    """Return the configured model followed by current fallback model IDs."""
+    configured_model = getattr(settings, "GEMINI_MODEL", None) or os.getenv("GEMINI_MODEL")
+    primary_model = (
+        configured_model.strip()
+        if isinstance(configured_model, str) and configured_model.strip()
+        else DEFAULT_QUICK_ANSWER_MODEL
+    )
+    return list(dict.fromkeys([primary_model, *QUICK_ANSWER_FALLBACK_MODELS]))
+
+
+def _is_model_unavailable(error: httpx.HTTPStatusError) -> bool:
+    """A 404 from Gemini generally means the requested model is unavailable."""
+    return error.response.status_code == 404
+
+
+def _safe_gemini_error(error: httpx.HTTPStatusError) -> RuntimeError:
+    """Map upstream failures without exposing the API key or request URL."""
+    status = error.response.status_code
+    if status in (401, 403):
+        return RuntimeError("Gemini API key is invalid or lacks permission.")
+    if status == 429:
+        return RuntimeError("Gemini API rate limit reached. Please try again shortly.")
+    if status >= 500:
+        return RuntimeError("Gemini API is temporarily unavailable. Please try again shortly.")
+    return RuntimeError("Gemini Quick Answer is unavailable for the configured model.")
 
 
 class QuickAnswerService:
@@ -130,7 +165,6 @@ class QuickAnswerService:
                 "Please add it to your .env file to enable Quick Answer mode."
             )
 
-        url = GEMINI_API_URL.format(model=QUICK_ANSWER_MODEL)
         payload = {
             "contents": [
                 {
@@ -155,10 +189,34 @@ class QuickAnswerService:
 
         params = {"key": self._api_key}
 
+        last_error = None
+        models = get_quick_answer_models()
+
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(url, json=payload, params=params)
-            resp.raise_for_status()
-            data = resp.json()
+            for model in models:
+                url = GEMINI_API_URL.format(model=model)
+                try:
+                    resp = await client.post(url, json=payload, params=params)
+                    resp.raise_for_status()
+                    data = resp.json()
+                    break
+                except httpx.HTTPStatusError as exc:
+                    last_error = exc
+                    if _is_model_unavailable(exc) and model != models[-1]:
+                        logger.warning(
+                            f"[QuickAnswer] Gemini model {model!r} unavailable; trying fallback."
+                        )
+                        continue
+                    raise _safe_gemini_error(exc) from None
+                except httpx.RequestError as exc:
+                    logger.warning(f"[QuickAnswer] Gemini request failed: {type(exc).__name__}")
+                    raise RuntimeError(
+                        "Could not reach the Gemini API. Please try again shortly."
+                    ) from None
+            else:
+                if last_error:
+                    raise _safe_gemini_error(last_error) from None
+                raise RuntimeError("Gemini Quick Answer is unavailable. Please try again shortly.")
 
         try:
             answer_text = (
@@ -170,7 +228,7 @@ class QuickAnswerService:
 
         return {
             "answer": answer_text,
-            "model": QUICK_ANSWER_MODEL,
+            "model": model,
             "query": query,
             "mode": "quick",
         }
