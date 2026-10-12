@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Play, Layers, Globe, BookOpen, TrendingUp, Zap, Brain } from 'lucide-react';
 import { createResearch } from '../../api/research';
 import { quickAnswer } from '../../api/research';
+import { getErrorMessage } from '../../api/errorMessage';
 
 /**
  * QueryInputCard
@@ -27,16 +28,22 @@ export default function QueryInputCard({ onJobCreated, onQuickAnswer, disabled }
   const toggleCategory = (key) =>
     setCategories((prev) => ({ ...prev, [key]: !prev[key] }));
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (requestedMode = mode) => {
     if (loading || disabled) return;
     const trimmed = query.trim();
     if (!trimmed) { setError('Please enter a question or research query.'); return; }
     setError('');
     setLoading(true);
 
+    // Button wrappers pass an explicit mode; keyboard submission uses the
+    // selected mode from state. This keeps click events out of the mode value.
+    const submissionMode = ['auto', 'quick', 'deep'].includes(requestedMode)
+      ? requestedMode
+      : mode;
+
     try {
       // Quick-only or Auto mode → try quick-answer router first
-      if (mode === 'quick' || mode === 'auto') {
+      if (submissionMode === 'quick' || submissionMode === 'auto') {
         const { data } = await quickAnswer(trimmed);
 
         if (data.mode === 'quick' && data.answer) {
@@ -47,7 +54,7 @@ export default function QueryInputCard({ onJobCreated, onQuickAnswer, disabled }
         }
 
         // Router said "deep" — fall through only if mode is 'auto'
-        if (mode === 'quick') {
+        if (submissionMode === 'quick') {
           // User explicitly chose Quick but it fell back to deep — inform them
           setError('This question requires deep research. Switching to Deep Research mode…');
           // Still proceed to deep pipeline below
@@ -62,11 +69,16 @@ export default function QueryInputCard({ onJobCreated, onQuickAnswer, disabled }
         breadth: Number(breadth),
         categories: cats,
       });
-      const job = data.research || data.data || data;
-      onJobCreated(job._id || job.id, job);
+      const job = data?.research || data?.data || data;
+      const jobId = job?._id || job?.id;
+      if (!jobId) {
+        setError('Research submission did not return a job id.');
+        return;
+      }
+      if (onJobCreated) onJobCreated(jobId, job);
       setQuery('');
     } catch (err) {
-      setError(err.response?.data?.detail || err.response?.data?.message || err.message || 'Failed to submit.');
+      setError(getErrorMessage(err, 'Failed to submit.'));
     } finally {
       setLoading(false);
     }
@@ -186,7 +198,7 @@ export default function QueryInputCard({ onJobCreated, onQuickAnswer, disabled }
 
           <div className="options-spacer" />
 
-          <button id="launch-research-btn" className="btn-primary" onClick={handleSubmit} disabled={loading || disabled}>
+          <button id="launch-research-btn" className="btn-primary" onClick={() => handleSubmit('deep')} disabled={loading || disabled}>
             {loading || disabled
               ? <><span className="spinner" style={{ width: 14, height: 14 }} /> {disabled ? 'RUNNING…' : 'LAUNCHING…'}</>
               : <><Play size={14} fill="currentColor" /> LAUNCH DEEP RESEARCH</>}
@@ -198,7 +210,7 @@ export default function QueryInputCard({ onJobCreated, onQuickAnswer, disabled }
       {isQuickMode && (
         <div className="options-bar">
           <div className="options-spacer" />
-          <button id="quick-answer-btn" className="btn-quick" onClick={handleSubmit} disabled={loading || disabled}>
+          <button id="quick-answer-btn" className="btn-quick" onClick={() => handleSubmit('quick')} disabled={loading || disabled}>
             {loading
               ? <><span className="spinner" style={{ width: 14, height: 14 }} /> THINKING…</>
               : <><Zap size={14} fill="currentColor" /> GET QUICK ANSWER</>}
@@ -210,7 +222,7 @@ export default function QueryInputCard({ onJobCreated, onQuickAnswer, disabled }
       {isAutoMode && (
         <div className="options-bar">
           <div className="options-spacer" />
-          <button id="auto-submit-btn" className="btn-primary" onClick={handleSubmit} disabled={loading || disabled}>
+          <button id="auto-submit-btn" className="btn-primary" onClick={() => handleSubmit('auto')} disabled={loading || disabled}>
             {loading || disabled
               ? <><span className="spinner" style={{ width: 14, height: 14 }} /> {disabled ? 'RUNNING…' : 'ROUTING…'}</>
               : <><Brain size={14} /> SMART SUBMIT</>}

@@ -54,6 +54,21 @@ class ResearchRequest(BaseModel):
     @classmethod
     def handle_tracks_alias(cls, data):
         if isinstance(data, dict):
+            data = data.copy()
+
+            # The frontend uses the mode labels as depth aliases. Resolve only
+            # the supported aliases here so the normal integer constraints
+            # below continue to validate numeric input and unknown strings.
+            depth = data.get("depth")
+            if isinstance(depth, str):
+                depth_alias = depth.strip().lower()
+                if depth_alias in {"quick", "standard", "deep"}:
+                    # Import lazily because app.research imports the research
+                    # models as part of its package initialisation.
+                    from app.research.research_modes import get_mode_config
+
+                    data["depth"] = get_mode_config(depth_alias).depth
+
             if "tracks" in data and not data.get("categories"):
                 tracks = data.get("tracks")
                 if isinstance(tracks, dict):
