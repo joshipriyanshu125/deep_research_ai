@@ -44,9 +44,11 @@ function ProtectedRoute({ children }) {
 }
 
 function PublicRoute({ children }) {
-  const { user, loading } = useAuth();
-  if (loading) return null;
-  return !user ? children : <Navigate to="/dashboard" replace />;
+  const { user } = useAuth();
+
+  // Keep public auth pages usable while a stored session is being restored.
+  // A restored user still takes the existing authenticated redirect path.
+  return user ? <Navigate to="/dashboard" replace /> : children;
 }
 
 export default function App() {

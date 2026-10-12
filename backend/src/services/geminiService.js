@@ -16,14 +16,30 @@ const { GoogleGenAI } = require("@google/genai");
 // Configuration
 // ---------------------------------------------------------------------------
 const getGeminiApiKey = () => process.env.GEMINI_API_KEY;
-const getGeminiModel = () => process.env.GEMINI_MODEL || "gemini-flash-lite-latest";
+const DEFAULT_GEMINI_MODEL = "gemini-flash-lite-latest";
 
-// Fallback models in case the primary configured model suffers transient overload (503)
+const getGeminiModel = () => {
+    const configuredModel = process.env.GEMINI_MODEL;
+    return typeof configuredModel === "string" && configuredModel.trim()
+        ? configuredModel.trim()
+        : DEFAULT_GEMINI_MODEL;
+};
+
+// Current Gemini model aliases and stable model IDs. Keep the configured model first
+// so supported custom/model-version choices continue to work unchanged.
 const FALLBACK_MODELS = [
     "gemini-flash-lite-latest",
-    "gemini-3.1-flash-lite",
-    "gemini-3.8-flash"
+    "gemini-flash-latest",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite"
 ];
+
+function getGeminiModelCandidates(primaryModel = getGeminiModel()) {
+    return [
+        primaryModel,
+        ...FALLBACK_MODELS.filter((modelName) => modelName !== primaryModel)
+    ];
+}
 
 // Lazy-initialised client
 let _client = null;
@@ -48,6 +64,55 @@ function getClient() {
 const MAX_QUESTION_LENGTH = 2000; // characters
 const REQUEST_TIMEOUT_MS = 30_000; // 30 s
 
+function getGeminiErrorStatus(err) {
+    const status = err?.status ?? err?.statusCode ?? err?.response?.status ?? err?.code;
+    const numericStatus = Number(status);
+    return Number.isNaN(numericStatus) ? status : numericStatus;
+}
+
+function isUnavailableModelError(err) {
+    const status = getGeminiErrorStatus(err);
+    const message = String(err?.message || "").toLowerCase();
+
+    return status === 404 ||
+        message.includes("not found") ||
+        message.includes("unknown model") ||
+        message.includes("model is unavailable") ||
+        message.includes("model not supported") ||
+        message.includes("deprecated model");
+}
+
+function isRetryableModelError(err) {
+    const status = getGeminiErrorStatus(err);
+    const message = String(err?.message || "").toLowerCase();
+
+    return isUnavailableModelError(err) ||
+        status === 503 ||
+        message.includes("demand") ||
+        message.includes("overloaded") ||
+        message.includes("service unavailable");
+}
+
+async function generateContentWithTimeout(client, request) {
+    let timeoutId;
+
+    try {
+        return await Promise.race([
+            client.models.generateContent(request),
+            new Promise((_, reject) => {
+                timeoutId = setTimeout(() => {
+                    const err = new Error("Gemini API request timed out. Please try again.");
+                    err.status = 504;
+                    err.code = "GEMINI_TIMEOUT";
+                    reject(err);
+                }, REQUEST_TIMEOUT_MS);
+            })
+        ]);
+    } finally {
+        clearTimeout(timeoutId);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -60,13 +125,7 @@ const REQUEST_TIMEOUT_MS = 30_000; // 30 s
  */
 async function askGemini(question) {
     const client = getClient();
-    const primaryModel = getGeminiModel();
-
-    // Deduplicate candidate models starting with primary
-    const candidateModels = [
-        primaryModel,
-        ...FALLBACK_MODELS.filter((m) => m !== primaryModel)
-    ];
+    const candidateModels = getGeminiModelCandidates();
 
     const prompt = `You are a helpful, knowledgeable AI assistant. Answer the following question clearly and concisely.\n\nQuestion: ${question}`;
 
@@ -74,21 +133,11 @@ async function askGemini(question) {
 
     for (const modelName of candidateModels) {
         try {
-            const timeoutPromise = new Promise((_, reject) => {
-                setTimeout(() => {
-                    const err = new Error("Gemini API request timed out. Please try again.");
-                    err.status = 504;
-                    err.code = "GEMINI_TIMEOUT";
-                    reject(err);
-                }, REQUEST_TIMEOUT_MS);
-            });
-
-            const geminiPromise = client.models.generateContent({
+            const response = await generateContentWithTimeout(client, {
                 model: modelName,
                 contents: prompt,
             });
 
-            const response = await Promise.race([geminiPromise, timeoutPromise]);
             const answer = response?.text;
 
             if (answer && typeof answer === "string" && answer.trim() !== "") {
@@ -99,13 +148,11 @@ async function askGemini(question) {
             }
         } catch (err) {
             lastError = err;
-            const status = err.status || err.code;
-            const msg = (err.message || "").toLowerCase();
 
-            // If it's a transient overload (503) or 404 on this specific model, try next candidate
-            const isModelSpecific = status === 503 || status === 404 || msg.includes("demand") || msg.includes("not found");
-            if (isModelSpecific && candidateModels.indexOf(modelName) < candidateModels.length - 1) {
-                console.warn(`[GeminiService] Model ${modelName} returned status ${status}. Trying fallback model...`);
+            // An old/deprecated model commonly returns 404. Treat it like an
+            // unavailable model and continue to a currently supported candidate.
+            if (isRetryableModelError(err) && candidateModels.indexOf(modelName) < candidateModels.length - 1) {
+                console.warn(`[GeminiService] Model ${modelName} is unavailable. Trying fallback model...`);
                 continue;
             }
 
@@ -391,8 +438,8 @@ Return a JSON array of objects:
  * @param {Error} err
  */
 function _mapGeminiError(err) {
-    const msg = (err.message || "").toLowerCase();
-    const status = err.status || err.code;
+    const msg = String(err?.message || "").toLowerCase();
+    const status = getGeminiErrorStatus(err);
 
     // Invalid / expired key
     if (
@@ -414,6 +461,14 @@ function _mapGeminiError(err) {
         const e = new Error("Gemini API rate limit reached. Please wait a moment and try again.");
         e.status = 429;
         e.code = "GEMINI_RATE_LIMIT";
+        throw e;
+    }
+
+    // Configured model was retired, renamed, or is not enabled for this API.
+    if (isUnavailableModelError(err)) {
+        const e = new Error("No configured Gemini model is currently available. Update GEMINI_MODEL or try again later.");
+        e.status = 502;
+        e.code = "GEMINI_MODEL_UNAVAILABLE";
         throw e;
     }
 
@@ -451,5 +506,7 @@ module.exports = {
     geminiAnalyzeEvidence,
     geminiFactCheckClaims,
     MAX_QUESTION_LENGTH,
+    FALLBACK_MODELS,
+    getGeminiModelCandidates,
     getGeminiModel,
 };
