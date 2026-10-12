@@ -24,8 +24,8 @@ export default function LoginPage() {
       const { data } = await login({ email: form.email, password: form.password });
       loginUser(
         data.user || { email: form.email },
-        data.accessToken || data.token,
-        data.refreshToken
+        data.accessToken || data.token || data.access_token,
+        data.refreshToken || data.refresh_token
       );
       navigate('/dashboard');
     } catch (err) {

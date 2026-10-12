@@ -101,7 +101,9 @@ function autoBackendPlugin(targetUrl) {
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
-  const target = env.VITE_API_URL || env.VITE_API_PROXY_TARGET || process.env.VITE_API_URL || process.env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:5000';
+  const rawTarget = env.VITE_API_URL || env.VITE_API_PROXY_TARGET || process.env.VITE_API_URL || process.env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:5000';
+  const target = rawTarget.replace(/\/+$/, '');
+  const isLocal = !target || target.includes('127.0.0.1') || target.includes('localhost');
 
   return {
     plugins: [
@@ -117,6 +119,14 @@ export default defineConfig(({ mode }) => {
           secure: false,
           timeout: 30000,
           proxyTimeout: 30000,
+          rewrite: (path) => {
+            // When targeting remote backend (e.g. Render FastAPI), automatically map
+            // /api/... calls to /api/v1/... if /v1 is not already present.
+            if (!isLocal && !path.startsWith('/api/v1')) {
+              return path.replace(/^\/api/, '/api/v1');
+            }
+            return path;
+          },
           configure: (proxy) => {
             proxy.on('error', (_error, _request, response) => {
               if (!response || response.headersSent) return;
@@ -124,7 +134,7 @@ export default defineConfig(({ mode }) => {
               response.writeHead(503, { 'Content-Type': 'application/json' });
               response.end(JSON.stringify({
                 success: false,
-                message: 'Backend is starting. Please retry in a moment.',
+                message: 'Backend service is starting. Please retry in a moment.',
               }));
             });
           },

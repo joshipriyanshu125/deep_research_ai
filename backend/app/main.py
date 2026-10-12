@@ -76,25 +76,30 @@ app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(RateLimitMiddleware, max_requests=300, window_seconds=60)
 
 
-# Include Routers with API Prefix
-api_prefix = settings.API_V1_STR
-app.include_router(auth_router, prefix=api_prefix)
-app.include_router(users_router, prefix=api_prefix)
-app.include_router(research_router, prefix=api_prefix)
-app.include_router(reports_router, prefix=api_prefix)
-app.include_router(sources_router, prefix=api_prefix)
-app.include_router(history_router, prefix=api_prefix)
-app.include_router(admin_router, prefix=api_prefix)
-app.include_router(tasks_router, prefix=api_prefix)  # Day 11
-app.include_router(conversations_router, prefix=api_prefix)
-app.include_router(exports_router, prefix=api_prefix)
-app.include_router(notifications_router, prefix=api_prefix)
-app.include_router(scheduled_research_router, prefix=api_prefix)
-app.include_router(organizations_router, prefix=api_prefix)
-app.include_router(memory_router, prefix=api_prefix)  # Day 85–90
+# Include Routers with API Prefix (/api/v1) and compatibility prefix (/api)
+prefixes = [settings.API_V1_STR]
+if "/api" not in prefixes:
+    prefixes.append("/api")
+
+for pfx in prefixes:
+    app.include_router(auth_router, prefix=pfx)
+    app.include_router(users_router, prefix=pfx)
+    app.include_router(research_router, prefix=pfx)
+    app.include_router(reports_router, prefix=pfx)
+    app.include_router(sources_router, prefix=pfx)
+    app.include_router(history_router, prefix=pfx)
+    app.include_router(admin_router, prefix=pfx)
+    app.include_router(tasks_router, prefix=pfx)  # Day 11
+    app.include_router(conversations_router, prefix=pfx)
+    app.include_router(exports_router, prefix=pfx)
+    app.include_router(notifications_router, prefix=pfx)
+    app.include_router(scheduled_research_router, prefix=pfx)
+    app.include_router(organizations_router, prefix=pfx)
+    app.include_router(memory_router, prefix=pfx)  # Day 85–90
+    app.include_router(quick_answer_router, prefix=pfx)  # Query Router: /api/v1/quick-answer
+
 app.include_router(v1_platform_router, prefix="/v1")  # Day 79–81: POST /v1/research, GET /v1/usage, etc.
 app.include_router(health_router)  # Day 96–100: /health/live, /health/ready, /health, /metrics
-app.include_router(quick_answer_router, prefix=api_prefix)  # Query Router: /api/v1/quick-answer
 
 
 # Root API Status Endpoint

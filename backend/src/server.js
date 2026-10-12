@@ -66,24 +66,29 @@ app.get(["/health", "/api/health"], (req, res) => {
     });
 });
 
-// Mount Routes (mounted at both standard and /api/ prefixed paths)
+// Mount Routes (mounted at standard, /api/, and /api/v1/ prefixed paths)
 app.use("/auth", databaseReady, authRoutes);
 app.use("/api/auth", databaseReady, authRoutes);
+app.use("/api/v1/auth", databaseReady, authRoutes);
 
-app.use("/research", researchRoutes);
-app.use("/api/research", researchRoutes);
+app.use("/research", databaseReady, researchRoutes);
+app.use("/api/research", databaseReady, researchRoutes);
+app.use("/api/v1/research", databaseReady, researchRoutes);
 
-app.use("/reports", reportRoutes);
-app.use("/api/reports", reportRoutes);
+app.use("/reports", databaseReady, reportRoutes);
+app.use("/api/reports", databaseReady, reportRoutes);
+app.use("/api/v1/reports", databaseReady, reportRoutes);
 
 app.use("/admin", adminRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/v1/admin", adminRoutes);
 
 // ── Gemini Quick Answer routes ───────────────────────────────────────────────
 // Canonical endpoint:  POST /api/ai/answer
 // Frontend alias:      POST /api/v1/quick-answer  (matches api/research.js quickAnswer())
 app.use("/ai", aiRoutes);
 app.use("/api/ai", aiRoutes);
+app.use("/api/v1/ai", aiRoutes);
 app.use("/api/v1/quick-answer", aiRoutes);
 
 // 404 Handler
