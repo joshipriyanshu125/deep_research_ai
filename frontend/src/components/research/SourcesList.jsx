@@ -16,6 +16,10 @@ export default function SourcesList({ sources }) {
     return 'amber';
   };
 
+  const publisherHost = (value) => {
+    try { return new URL(value).hostname; } catch { return value; }
+  };
+
   return (
     <>
       {sources.map((s, idx) => (
@@ -42,8 +46,16 @@ export default function SourcesList({ sources }) {
           )}
           {(s.sourceType || s.category || s.extractionStatus) && (
             <div className="source-snippet" style={{ opacity: 0.7 }}>
+              {(s.isVerificationSource ? 'VERIFICATION · ' : '')}
               {(s.sourceType || s.category || 'source').toUpperCase()} · {s.extractionStatus || 'collected'}
+              {s.provider ? ` · ${s.provider}` : ''}
+              {s.publisherUrl ? ` · publisher: ${publisherHost(s.publisherUrl)}` : ''}
             </div>
+          )}
+          {s.isVerificationSource && (
+            <span className="badge success" style={{ alignSelf: 'flex-start' }}>
+              ✓ Used for independent claim verification
+            </span>
           )}
         </div>
       ))}

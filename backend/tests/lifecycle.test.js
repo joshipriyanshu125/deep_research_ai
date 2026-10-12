@@ -1,3 +1,4 @@
+process.env.NODE_ENV = "test";
 require("dotenv").config();
 const http = require("http");
 const mongoose = require("mongoose");
@@ -40,9 +41,8 @@ async function runLifecycleTests() {
     const TEST_PORT = 5055;
     const server = http.createServer(app);
     await new Promise((r) => server.listen(TEST_PORT, r));
-    if (mongoose.connection.readyState === 0) {
-        await mongoose.connect(process.env.MONGODB_URI);
-    }
+    const connectDB = require("../src/config/db");
+    await connectDB();
 
     const testEmail = `lifecycle_${Date.now()}@example.com`;
     const password = "LifecyclePass123!";

@@ -26,23 +26,10 @@ const protect = async (req, res, next) => {
             });
         }
 
+        let decoded;
         try {
             // Verify access token
-            const decoded = jwt.verify(token, ACCESS_SECRET);
-
-            // Fetch user from DB (excluding password)
-            const user = await User.findById(decoded.id);
-
-            if (!user) {
-                return res.status(401).json({
-                    success: false,
-                    message: "User associated with this token no longer exists."
-                });
-            }
-
-            // Attach user to request object
-            req.user = user;
-            next();
+            decoded = jwt.verify(token, ACCESS_SECRET);
         } catch (jwtError) {
             if (jwtError.name === "TokenExpiredError") {
                 return res.status(401).json({
@@ -55,6 +42,20 @@ const protect = async (req, res, next) => {
                 message: "Invalid token. Authorization denied."
             });
         }
+
+        // Fetch user from DB (excluding password)
+        const user = await User.findById(decoded.id);
+
+        if (!user) {
+            return res.status(401).json({
+                success: false,
+                message: "User associated with this token no longer exists."
+            });
+        }
+
+        // Attach user to request object
+        req.user = user;
+        next();
     } catch (error) {
         return res.status(500).json({
             success: false,

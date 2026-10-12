@@ -54,9 +54,8 @@ async function runAuthorizationTests() {
     const server = http.createServer(app);
     await new Promise((resolve) => server.listen(TEST_PORT, resolve));
 
-    if (mongoose.connection.readyState === 0) {
-        await mongoose.connect(process.env.MONGODB_URI);
-    }
+    const connectDB = require("../src/config/db");
+    await connectDB();
 
     const timestamp = Date.now();
     const userA_Email = `user_a_${timestamp}@example.com`;

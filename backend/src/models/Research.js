@@ -131,14 +131,21 @@ const researchSchema = new mongoose.Schema(
                     snippet: String,
                     content: String,
                     sourceType: String,
-                    category: String,
-                    extractionStatus: String,
-                    searchQuery: String,
-                    taskId: String,
-                    isFallback: Boolean,
-                    isFixture: Boolean,
-                    relevanceScore: Number,
-                    collectedAt: { type: Date, default: Date.now }
+                     category: String,
+                     provider: String,
+                     publisherUrl: String,
+                     publicationYear: mongoose.Schema.Types.Mixed,
+                     extractionStatus: String,
+                     extractionError: String,
+                     searchQuery: String,
+                     taskId: String,
+                     isFallback: Boolean,
+                     isFixture: Boolean,
+                     isVerificationSource: Boolean,
+                     verificationFor: String,
+                     relevanceScore: Number,
+                     collectedAt: { type: Date, default: Date.now },
+                     extractedAt: Date
                 }
             ],
             default: []
@@ -168,6 +175,10 @@ const researchSchema = new mongoose.Schema(
             default: null
         },
         qualityCheckResults: {
+            type: mongoose.Schema.Types.Mixed,
+            default: {}
+        },
+        verificationSummary: {
             type: mongoose.Schema.Types.Mixed,
             default: {}
         },

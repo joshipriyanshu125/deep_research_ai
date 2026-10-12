@@ -114,6 +114,18 @@ Confidence Assessment
 
 This helps reduce unsupported or hallucinated claims.
 
+The active Node research pipeline records the distinction between source
+discovery and verification. In production it uses configured Tavily/Serper
+providers when available and also has public DuckDuckGo HTML, Google News RSS,
+Wikipedia, OpenAlex, and Crossref discovery paths. After initial extraction,
+the verifier runs claim-specific searches, excludes the original source
+domains, fetches candidate pages, and only marks a claim independently
+verified when a fetched passage matches the claim's wording and metrics.
+Snippet-only, inaccessible, single-source, and contradictory results remain
+explicitly labeled. Research and report records expose `verificationSummary`,
+provider metadata, verification-source citations, and the dashboard displays
+whether live web research and independent checks actually occurred.
+
 ---
 
 ### 🤖 Multi-Agent Architecture

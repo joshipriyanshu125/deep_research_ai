@@ -1,5 +1,6 @@
 const { request, mapConcurrent } = require('./researchHttp');
 const { stripHtml } = require('./contentExtractor');
+const cheerio = require('cheerio');
 
 function normalizeUrl(value) {
     try {
@@ -14,6 +15,49 @@ function normalizeUrl(value) {
 
 async function json(url, options) {
     return JSON.parse((await request(url, options)).text);
+}
+
+function decodeSearchUrl(value) {
+    try {
+        const parsed = new URL(value, 'https://html.duckduckgo.com');
+        if (parsed.pathname === '/l/' && parsed.searchParams.get('uddg')) {
+            return decodeURIComponent(parsed.searchParams.get('uddg'));
+        }
+        return parsed.href;
+    } catch {
+        return value;
+    }
+}
+
+function parseDuckDuckGoHtml(html) {
+    const $ = cheerio.load(html || '');
+    return $('.result').map((_index, element) => {
+        const result = $(element);
+        const link = result.find('a.result__a').first();
+        const url = decodeSearchUrl(link.attr('href') || '');
+        return {
+            title: stripHtml(link.text()),
+            url,
+            snippet: stripHtml(result.find('.result__snippet').first().text()),
+            provider: 'duckduckgo'
+        };
+    }).get().filter((item) => item.url && item.title);
+}
+
+function parseNewsRss(xml) {
+    const $ = cheerio.load(xml || '', { xmlMode: true });
+    return $('item').map((_index, element) => {
+        const item = $(element);
+        const publisherUrl = item.find('source').attr('url') || '';
+        return {
+            title: stripHtml(item.find('title').text()),
+            url: item.find('link').text().trim(),
+            snippet: stripHtml(item.find('description').text()),
+            publicationYear: item.find('pubDate').text().trim(),
+            provider: 'google-news',
+            ...(publisherUrl ? { publisherUrl } : {})
+        };
+    }).get().filter((item) => item.url && item.title);
 }
 
 function restoreAbstract(index) {
@@ -70,16 +114,83 @@ async function searchTask(task, signal) {
         return (data[news ? 'news' : 'organic'] || []).map((item) => ({ title: item.title,
             url: item.link, snippet: item.snippet, provider: 'serper' }));
     });
+    // Public providers keep the research engine useful without requiring a
+    // paid search key. They are intentionally queried server-side so browser
+    // clients never need to bypass CORS or expose provider credentials.
+    providers.push(async () => {
+        const response = await request(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(task.query)}`, {
+            signal,
+            headers: { 'Accept': 'text/html', 'Accept-Language': 'en-US,en;q=0.8' }
+        });
+        return parseDuckDuckGoHtml(response.text).map((item) => ({
+            ...item,
+            sourceType: task.category === 'market' ? 'news' : task.category,
+            relevanceScore: 0.62
+        }));
+    });
+    // Google News RSS is also used for general and verification queries. It
+    // gives the engine a second public discovery path when a search API is not
+    // configured and, importantly, usually returns publisher domains that can
+    // be independent of an original Wikipedia or academic result.
+    providers.push(async () => {
+        const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(task.query)}&hl=en-US&gl=US&ceid=US:en`;
+        const response = await request(rssUrl, {
+            signal,
+            headers: { 'Accept': 'application/rss+xml, application/xml, text/xml' }
+        });
+        return parseNewsRss(response.text).slice(0, 3).map((item) => ({
+            ...item,
+            sourceType: task.category === 'market' ? 'news' : task.category,
+            relevanceScore: 0.6
+        }));
+    });
+    if (task.category === 'web' || task.category === 'other') providers.push(async () => {
+        const data = await json(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(task.query)}&srlimit=5&format=json&origin=*`, { signal });
+        return (data.query?.search || []).map((item) => ({
+            title: item.title,
+            url: `https://en.wikipedia.org/wiki/${encodeURIComponent(item.title.replace(/ /g, '_'))}`,
+            snippet: stripHtml(item.snippet),
+            sourceType: 'web',
+            relevanceScore: 0.55,
+            provider: 'wikipedia'
+        }));
+    });
+    if (task.category === 'academic') providers.push(async () => {
+        const data = await json(`https://api.crossref.org/works?query=${encodeURIComponent(task.query)}&rows=5&select=title,URL,DOI,abstract,published`, { signal });
+        return (data.message?.items || []).map((item) => ({
+            title: Array.isArray(item.title) ? item.title[0] : item.title,
+            url: item.URL || (item.DOI ? `https://doi.org/${item.DOI}` : ''),
+            snippet: stripHtml(item.abstract || ''),
+            sourceType: 'academic',
+            provider: 'crossref',
+            publicationYear: item.published?.['date-parts']?.[0]?.[0],
+            relevanceScore: 0.65
+        }));
+    });
+
+    const collected = [];
     for (const provider of providers) {
         try {
             const items = await provider();
-            if (items.length) return { items, warning: errors.join(' ') };
+            collected.push(...items.slice(0, 5));
+            // One provider is enough for a quick track, but retaining a small
+            // sample from later providers gives verification a real chance to
+            // find a source from a different domain.
+            if (collected.length >= 12) break;
         } catch (error) {
             signal?.throwIfAborted();
             errors.push(error.message);
         }
     }
-    return { items: [], warning: errors.join(' ') || 'No results. Configure TAVILY_API_KEY or SERPER_API_KEY for web/news search.' };
+    const unique = new Map();
+    for (const item of collected) {
+        const url = normalizeUrl(item.url);
+        if (url && !unique.has(url)) unique.set(url, item);
+    }
+    return {
+        items: [...unique.values()],
+        warning: errors.length && !unique.size ? errors.join(' ') : ''
+    };
 }
 
 async function collectSources(tasks, signal) {
@@ -98,11 +209,24 @@ async function collectSources(tasks, signal) {
                 snippet: stripHtml(item.snippet || '').slice(0, 12000),
                 sourceType: item.sourceType || (task.category === 'market' ? 'news' : task.category),
                 searchQuery: task.query, taskId: task.id, category: task.category,
-                isFixture: Boolean(item.isFixture), collectedAt: new Date()
+                provider: item.provider || 'unknown',
+                publisherUrl: item.publisherUrl,
+                publicationYear: item.publicationYear,
+                isFixture: Boolean(item.isFixture),
+                isVerificationSource: Boolean(item.isVerificationSource),
+                collectedAt: new Date()
             });
         }
     });
     return [...sources.values()].slice(0, 24);
 }
 
-module.exports = { collectSources, searchTask, normalizeUrl, restoreAbstract };
+module.exports = {
+    collectSources,
+    searchTask,
+    normalizeUrl,
+    restoreAbstract,
+    parseDuckDuckGoHtml,
+    parseNewsRss,
+    decodeSearchUrl
+};

@@ -1,6 +1,6 @@
 const { askGroundedGemini } = require("./geminiService");
 
-function citationsFromSources(sources, evidence) {
+function citationsFromSources(sources, evidence, factChecks = []) {
     const seen = new Set();
     return sources.filter((source) => {
         if (!source.url || seen.has(source.url)) return false;
@@ -13,31 +13,54 @@ function citationsFromSources(sources, evidence) {
         sourceUrl: source.url,
         url: source.url,
         sourceType: source.sourceType || source.category || "web",
+        publisherUrl: source.publisherUrl,
         snippet: source.snippet,
-        evidenceIds: evidence.filter((item) => item.sourceUrl === source.url).map((item) => item.id)
+        evidenceIds: evidence.filter((item) => item.sourceUrl === source.url).map((item) => item.id),
+        verificationFor: factChecks
+            .filter((check) => (check.independentSourceUrls || []).includes(source.url))
+            .map((check) => check.claimId || check.claim),
+        verificationStatus: factChecks.find((check) => (check.independentSourceUrls || []).includes(source.url))?.status,
+        isVerificationSource: Boolean(source.isVerificationSource)
     }));
 }
 
-function fallbackReport(query, analysis, factChecks, citations) {
+function fallbackReport(query, analysis, factChecks, citations, verificationSummary = {}) {
     const findings = analysis.findings.length > 0
         ? analysis.findings.map((finding, index) => `- ${finding.insight} [${(finding.evidenceIds || [])[0] ? citations.find((citation) => citation.evidenceIds.includes(finding.evidenceIds[0]))?.index || 1 : index + 1}]`).join("\n")
         : `- No sufficiently detailed evidence was extracted for this query.`;
-    const factCheckLines = factChecks.slice(0, 8).map((check) => `- **${check.status}** (${Math.round(check.confidence * 100)}% confidence): ${check.claim}`).join("\n");
-    const sourceLines = citations.map((citation) => `[${citation.index}] ${citation.title} — ${citation.url}`).join("\n");
-    return `# Deep Research Report: ${query}\n\n## Executive Summary\n${analysis.summary} Findings below are grounded in the extracted evidence and linked to the source list.\n\n## Research Methodology\nThe query was decomposed into independent web, news/paper, market, and other-source tracks where requested. Results were collected, deduplicated, extracted, analyzed, fact-checked, compared, and cited.\n\n## Key Findings\n${findings}\n\n## Analysis and Comparison\n${analysis.comparisons.map((item) => `- **${item.dimension}**: ${item.observation}`).join("\n") || "- No cross-category comparison was available."}\n\n## Fact Check\n${factCheckLines || "- No independent corroboration was available; claims should be treated as provisional."}\n\n## Limitations and Risks\n- Source availability and publication dates vary by topic.\n- Claims supported by a single source are clearly marked and should be independently validated before high-stakes decisions.\n\n## Sources & Citations\n${sourceLines || "No sources were collected."}`;
+    const factCheckLines = factChecks.slice(0, 8).map((check) => {
+        const independent = (check.independentSourceUrls || []).length;
+        const refs = (check.sourceUrls || []).map((url) => citations.find((citation) => citation.url === url)?.index)
+            .filter(Boolean).map((index) => `[${index}]`).join(' ');
+        const method = check.verificationMethod === "independent_web_search"
+            ? `; ${independent} independent web source${independent === 1 ? "" : "s"}`
+            : "";
+        return `- **${check.status}** (${Math.round((check.confidence || 0) * 100)}% confidence${method}): ${check.claim} ${refs}`;
+    }).join("\n");
+    const sourceLines = citations.map((citation) => {
+        const kind = citation.isVerificationSource ? "verification source" : citation.sourceType;
+        return `[${citation.index}] ${citation.title} — ${citation.url} (${kind})`;
+    }).join("\n");
+    const verificationLine = verificationSummary.independentVerification
+        ? `Independent web verification was attempted for ${verificationSummary.attemptedClaims || 0} claims and verified ${verificationSummary.verifiedClaims || 0}.`
+        : "Independent web verification was not available for this run; claims remain provisional.";
+    const methodology = verificationSummary.liveWebResearch
+        ? 'Search providers were queried and source URLs were collected, deduplicated, and fetched when accessible.'
+        : 'Live web retrieval was not confirmed for this run.';
+    return `# Deep Research Report: ${query}\n\n## Executive Summary\n${analysis.summary} Findings below are grounded in the available evidence and linked to the source list. ${verificationLine}\n\n## Research Methodology\n${methodology} Extracted passages were analyzed, and independent web checks were attempted where available. Unavailable or snippet-only pages are not independently verified.\n\n## Key Findings\n${findings}\n\n## Analysis and Comparison\n${analysis.comparisons.map((item) => `- **${item.dimension}**: ${item.observation}`).join("\n") || "- No cross-category comparison was available."}\n\n## Fact Check\n${factCheckLines || "- No claims were extracted for verification."}\n\n## Limitations and Risks\n- Source availability, publication dates, and access restrictions vary by topic.\n- A claim marked single-source or unverified was not confirmed by an independent fetched web page.\n\n## Sources & Citations\n${sourceLines || "No sources were collected."}`;
 }
 
-async function generateReport({ query, analysis, evidence, factChecks, sources, signal }) {
-    const citations = citationsFromSources(sources, evidence);
+async function generateReport({ query, analysis, evidence, factChecks, sources, verificationSummary = {}, signal }) {
+    const citations = citationsFromSources(sources, evidence, factChecks);
     let content = "";
     if (process.env.GEMINI_API_KEY && process.env.NODE_ENV !== "test") {
         try {
-            content = await askGroundedGemini({ query, analysis, evidence, factChecks, citations, signal });
+            content = await askGroundedGemini({ query, analysis, evidence, factChecks, citations, verificationSummary, signal });
         } catch (error) {
             content = "";
         }
     }
-    if (!content) content = fallbackReport(query, analysis, factChecks, citations);
+    if (!content) content = fallbackReport(query, analysis, factChecks, citations, verificationSummary);
     if (!content.includes("Sources & Citations") && citations.length > 0) {
         content += `\n\n## Sources & Citations\n${citations.map((citation) => `[${citation.index}] ${citation.title} — ${citation.url}`).join("\n")}`;
     }
@@ -46,6 +69,7 @@ async function generateReport({ query, analysis, evidence, factChecks, sources, 
         summary: analysis.summary,
         content,
         citations,
+        verificationSummary,
         sections: [
             { heading: "Executive Summary", body: analysis.summary },
             { heading: "Key Findings", body: analysis.findings.map((finding) => finding.insight).join("\n") },

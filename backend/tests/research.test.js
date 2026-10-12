@@ -1,3 +1,4 @@
+process.env.NODE_ENV = "test";
 require("dotenv").config();
 const http = require("http");
 const mongoose = require("mongoose");
@@ -58,9 +59,8 @@ async function runResearchApiTests() {
     const server = http.createServer(app);
     await new Promise((resolve) => server.listen(TEST_PORT, resolve));
 
-    if (mongoose.connection.readyState === 0) {
-        await mongoose.connect(process.env.MONGODB_URI);
-    }
+    const connectDB = require("../src/config/db");
+    await connectDB();
 
     const testEmail = `research_user_${Date.now()}@example.com`;
     const password = "ResearchPassword123!";

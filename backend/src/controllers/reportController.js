@@ -82,7 +82,7 @@ const getAllReports = async (req, res) => {
 
         const reports = await Report.find(filter)
             .populate("user", "name email role")
-            .populate("research", "title query status")
+            .populate("research", "title query status sources evidence factChecks analysis verificationSummary plan tasks qualityScore qualityCheckResults")
             .sort({ createdAt: -1 });
 
         return res.status(200).json({
@@ -108,7 +108,7 @@ const getReportById = async (req, res) => {
     try {
         const report = req.report || (await Report.findById(req.params.id)
             .populate("user", "name email role")
-            .populate("research", "title query status"));
+            .populate("research", "title query status sources evidence factChecks analysis verificationSummary plan tasks qualityScore qualityCheckResults"));
 
         return res.status(200).json({
             success: true,

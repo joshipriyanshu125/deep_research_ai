@@ -49,9 +49,10 @@ function overlap(left, right) {
     return shared / Math.max(1, Math.min(a.size, b.size));
 }
 
-function factCheckEvidence(evidence) {
+function factCheckEvidence(evidence, independentChecks = []) {
     const checks = [];
     const groups = new Map();
+    const independentByClaim = new Map((independentChecks || []).map((check) => [check.claimId || check.claim, check]));
     for (const item of evidence) {
         const key = [...normalizeTokens(item.claim)].sort().slice(0, 8).join(" ") || item.claim;
         const group = groups.get(key) || [];
@@ -59,13 +60,32 @@ function factCheckEvidence(evidence) {
         groups.set(key, group);
     }
     for (const item of evidence) {
+        const independent = independentByClaim.get(item.id) || independentByClaim.get(item.claim);
         const related = evidence.filter((candidate) => candidate.id !== item.id && overlap(item.claim, candidate.claim) >= 0.55);
         const supported = related.length > 0 && related.some((candidate) => candidate.sourceUrl !== item.sourceUrl);
+        if (independent) {
+            checks.push({
+                claim: item.claim,
+                claimId: item.id,
+                supported: independent.supported === true,
+                confidence: independent.confidence,
+                status: independent.status,
+                sourceUrls: independent.sourceUrls || [item.sourceUrl],
+                independentSourceUrls: independent.independentSourceUrls || [],
+                contradictionSourceUrls: independent.contradictionSourceUrls || [],
+                searchQuery: independent.searchQuery,
+                verificationMethod: independent.verificationMethod,
+                verifiedAt: independent.verifiedAt,
+                contradictions: independent.contradictionSourceUrls || []
+            });
+            continue;
+        }
         checks.push({
             claim: item.claim,
+            claimId: item.id,
             supported,
             confidence: Number(Math.min(0.98, item.confidence + (supported ? 0.08 : 0)).toFixed(3)),
-            status: item.verificationStatus === "unverified" ? "unverified" : supported ? "verified" : "single-source",
+            status: item.verificationStatus === "unverified" ? "unverified" : "single-source",
             sourceUrls: [item.sourceUrl, ...related.map((candidate) => candidate.sourceUrl)].filter((url, index, all) => all.indexOf(url) === index),
             contradictions: []
         });
