@@ -65,7 +65,11 @@ export default function QueryInputCard({ onJobCreated, onQuickAnswer, disabled }
       const cats = Object.entries(categories).filter(([, v]) => v).map(([k]) => k);
       const { data } = await createResearch({
         query: trimmed,
-        depth,
+        // The API contract uses a numeric planner depth. Keep the UI labels
+        // (quick/standard/deep) separate from the wire format so older
+        // deployed backends cannot reject a valid submission with 422.
+        depth: { quick: 1, standard: 2, deep: 3 }[depth] || 2,
+        research_mode: depth,
         breadth: Number(breadth),
         categories: cats,
       });
