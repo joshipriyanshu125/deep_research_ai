@@ -7,6 +7,17 @@ from app.utils.logger import logger
 
 
 class ResearchWorker:
+    # Job states that a worker can own. A process restart orphans them, so
+    # they must be re-queued on startup instead of staying stalled forever.
+    RECOVERABLE_STATUSES = {
+        ResearchStatus.PENDING,
+        ResearchStatus.PLANNING,
+        ResearchStatus.SEARCHING,
+        ResearchStatus.EXTRACTING,
+        ResearchStatus.ANALYZING,
+        ResearchStatus.SYNTHESIZING,
+    }
+
     def __init__(self):
         self.queue = asyncio.Queue()
         self.is_running = False
@@ -43,21 +54,55 @@ class ResearchWorker:
         if result and result.status == ResearchStatus.COMPLETED:
             await notification_service.notify_research_complete(job.user_id, job.id, job.query)
 
+    async def recover_interrupted_jobs(self) -> int:
+        """Re-queue pending jobs and restart jobs orphaned by a restart.
+
+        Only PENDING jobs used to be recovered, which left a run that died
+        mid-pipeline (planning/searching/extracting/…) stuck at its last
+        status forever — the polling UI then appeared stalled. Every
+        non-terminal job is now reset to PENDING and enqueued again.
+        """
+        try:
+            from app.database.mongodb import db_manager
+            if not (db_manager.is_connected and db_manager.db is not None):
+                return 0
+
+            recovered = 0
+            cursor = db_manager.db.research_jobs.find(
+                {"status": {"$in": sorted(self.RECOVERABLE_STATUSES)}}
+            )
+            async for doc in cursor:
+                job = ResearchJob(**doc)
+                if job.id in self._active_jobs:
+                    continue
+                if job.status != ResearchStatus.PENDING:
+                    job.status = ResearchStatus.PENDING
+                    job.progress_percentage = 0
+                    job.error_message = None
+                    job.completed_at = None
+                    job.checkpoint_phase = "pending"
+                    job.current_step = "Recovered after a backend restart; re-queued for execution."
+                    try:
+                        await research_repo.update_job(job)
+                    except asyncio.CancelledError:
+                        # The job reached a terminal state while we read it.
+                        continue
+                await self.enqueue_job(job)
+                recovered += 1
+
+            if recovered:
+                logger.info(f"Recovered {recovered} interrupted research job(s) on startup.")
+            return recovered
+        except Exception as e:
+            logger.warning(f"Could not recover interrupted jobs on startup: {e}")
+            return 0
+
     async def start_worker(self):
         self.is_running = True
         logger.info("Research background worker started.")
 
-        # Recover any pending jobs from MongoDB on startup
-        try:
-            from app.database.mongodb import db_manager
-            if db_manager.is_connected and db_manager.db is not None:
-                cursor = db_manager.db.research_jobs.find({"status": ResearchStatus.PENDING})
-                async for doc in cursor:
-                    job = ResearchJob(**doc)
-                    await self.enqueue_job(job)
-                    logger.info(f"Recovered pending research job {job.id} on startup.")
-        except Exception as e:
-            logger.warning(f"Could not recover pending jobs on startup: {e}")
+        # Recover pending and interrupted jobs from MongoDB on startup
+        await self.recover_interrupted_jobs()
 
         while self.is_running:
             try:

@@ -3,12 +3,57 @@ const Research = require("../models/Research");
 const researchWorker = require("../workers/researchWorker");
 const stateMachine = require("../services/researchStateMachine");
 
+// Every state a running worker can own. The queue itself lives in memory, so a
+// process restart or a nodemon reload orphans these documents: they stay at
+// their in-flight status forever unless they are re-queued on startup.
+const INTERRUPTED_STATES = [
+    "queued",
+    "retry",
+    "pending",
+    "planning",
+    "searching",
+    "collecting",
+    "analyzing",
+    "verifying",
+    "synthesizing",
+    "report_generation",
+    "quality_check",
+    // Legacy aliases still accepted by the Research schema
+    "researching",
+    "fact_checking",
+    "writing",
+    "in_progress",
+    "paused"
+];
+
 class ResearchQueue {
     constructor() {
         this.queue = [];
         this.isProcessing = false;
         this.concurrency = parseInt(process.env.RESEARCH_CONCURRENCY || "2", 10);
         this.activeCount = 0;
+        this.connectionWaiter = null;
+    }
+
+    /**
+     * Kick the queue now, or as soon as MongoDB becomes reachable.
+     *
+     * Previously processQueue() returned silently while the connection was
+     * down, which left an already-dequeued job stranded in memory until some
+     * later request happened to trigger another run.
+     */
+    scheduleProcessing() {
+        if (mongoose.connection.readyState === 1) {
+            setImmediate(() => this.processQueue());
+            return;
+        }
+
+        if (this.connectionWaiter) return;
+        this.connectionWaiter = () => {
+            this.connectionWaiter = null;
+            setImmediate(() => this.processQueue());
+        };
+        mongoose.connection.once("connected", this.connectionWaiter);
     }
 
     /**
@@ -27,16 +72,73 @@ class ResearchQueue {
         }
 
         // Process asynchronously without blocking HTTP response
-        setImmediate(() => {
-            this.processQueue();
-        });
+        this.scheduleProcessing();
+    }
+
+    /**
+     * Re-queue documents that were left behind by a previous process.
+     *
+     * In-flight statuses are reset to 'queued' with a compare-and-set so a job
+     * that finished (or was cancelled) while we were reading it is never
+     * resurrected. Already active or already queued jobs are skipped.
+     * @returns {Promise<number>} number of re-queued jobs
+     */
+    async recoverInterruptedJobs() {
+        if (mongoose.connection.readyState !== 1) return 0;
+
+        const interrupted = await Research.find({ status: { $in: INTERRUPTED_STATES } })
+            .select("_id status");
+
+        let recovered = 0;
+        for (const doc of interrupted) {
+            const idStr = doc._id.toString();
+            if (researchWorker.isJobActive(idStr) || this.queue.includes(idStr)) continue;
+
+            if (doc.status !== "queued" && doc.status !== "retry") {
+                const requeued = await Research.findOneAndUpdate(
+                    { _id: idStr, status: doc.status },
+                    {
+                        $set: {
+                            status: "queued",
+                            progress: 0,
+                            currentStep: "Recovered after a server restart and re-queued for processing"
+                        },
+                        $push: {
+                            logs: {
+                                timestamp: new Date(),
+                                state: "queued",
+                                stage: "recovery",
+                                message: `Interrupted in '${doc.status}' state; re-queued after restart.`
+                            }
+                        }
+                    },
+                    { returnDocument: "after" }
+                );
+                // The status changed under us (completed/cancelled/failed) —
+                // the terminal state wins.
+                if (!requeued) continue;
+            }
+
+            await this.addJob(idStr);
+            recovered += 1;
+        }
+
+        if (recovered > 0) {
+            console.log(`[ResearchQueue] Recovered ${recovered} interrupted research job(s).`);
+        }
+        return recovered;
     }
 
     /**
      * Process queued jobs up to concurrency limit
      */
     async processQueue() {
-        if (mongoose.connection.readyState !== 1) return;
+        if (mongoose.connection.readyState !== 1) {
+            // Keep the pending jobs instead of dropping them: resume as soon
+            // as the database comes back.
+            this.scheduleProcessing();
+            return;
+        }
 
         while (this.activeCount < this.concurrency && this.queue.length > 0) {
             const researchId = this.queue.shift();

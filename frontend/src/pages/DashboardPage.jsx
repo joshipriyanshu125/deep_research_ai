@@ -34,6 +34,8 @@ export default function DashboardPage() {
 
   // Quick Answer state
   const [quickAnswerData, setQuickAnswerData] = useState(null); // { answer, query, model }
+  // Explicit hand-off from Quick Answer → Deep Research (never automatic).
+  const [deepResearchSeed, setDeepResearchSeed] = useState(null);
 
   const loadHistory = async () => {
     try {
@@ -64,10 +66,11 @@ export default function DashboardPage() {
   // Called when user clicks "Run Deep Research Instead" from QuickAnswerViewer
   const handleUpgradeToDeep = () => {
     if (!quickAnswerData) return;
-    // Pre-fill the textarea by storing the query; the user re-submits in deep mode.
-    // Since QueryInputCard manages its own state, we just clear quick answer
-    // and let the user re-submit. A toast/hint would improve UX further.
+    // Explicit user action: move the same question into Deep Research mode
+    // with the textarea pre-filled. Nothing is submitted automatically.
+    setDeepResearchSeed(`${quickAnswerData.query}`);
     setQuickAnswerData(null);
+    setActiveJobId(null);
   };
 
   const handleSelectJob = (jobId) => {
@@ -118,6 +121,7 @@ export default function DashboardPage() {
               onJobCreated={handleJobCreated}
               onQuickAnswer={handleQuickAnswer}
               disabled={isPolling}
+              initialQuery={deepResearchSeed}
             />
           </div>
         </TiltCard>

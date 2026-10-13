@@ -2,11 +2,13 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "node tests/auth.test.js && node tests/authorization.test.js && node tests/research.test.js && node tests/job_system.test.js && node tests/lifecycle.test.js",
+    "test": "node tests/auth.test.js && node tests/authorization.test.js && node tests/research.test.js && node tests/job_system.test.js && node tests/lifecycle.test.js && node --test tests/research_recovery.test.js",
     "test:auth": "node tests/auth.test.js",
     "test:rbac": "node tests/authorization.test.js",
     "test:research": "node tests/research.test.js",
     "test:services": "node --test tests/research_services.test.js",
+    "test:recovery": "node --test tests/research_recovery.test.js",
+    "test:cancellation": "node --test tests/research_cancellation.test.js",
     "test:job": "node tests/job_system.test.js",
     "test:lifecycle": "node tests/lifecycle.test.js"
   },

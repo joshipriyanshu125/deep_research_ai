@@ -37,7 +37,14 @@ class ResearchEngine {
     }
 
     async execute(researchId, signal) {
-        if (mongoose.connection.readyState !== 1) return;
+        // A job must never be dropped just because MongoDB was not reachable
+        // at the exact moment the worker picked it up: waiting (and letting
+        // the queue's connection handler re-queue it) keeps it from stalling
+        // silently at 'queued'.
+        if (mongoose.connection.readyState !== 1 && !await this.awaitDatabaseConnection()) {
+            console.warn(`[ResearchEngine] MongoDB unreachable for job ${researchId}; job stays queued for recovery.`);
+            return;
+        }
         const research = await Research.findById(researchId);
         if (!research || this.isAborted(signal) || research.status === STATES.CANCELLED) return;
 
@@ -375,6 +382,27 @@ class ResearchEngine {
 
     isAborted(signal) {
         return Boolean(signal?.aborted);
+    }
+
+    /**
+     * Wait for MongoDB to become reachable so an early stage is not skipped.
+     * @param {number} timeoutMs
+     * @returns {Promise<boolean>} true when the connection is ready
+     */
+    awaitDatabaseConnection(timeoutMs = 10000) {
+        if (mongoose.connection.readyState === 1) return Promise.resolve(true);
+
+        return new Promise((resolve) => {
+            let timer = null;
+            const finish = (connected) => {
+                clearTimeout(timer);
+                mongoose.connection.removeListener("connected", onConnected);
+                resolve(connected);
+            };
+            const onConnected = () => finish(true);
+            mongoose.connection.once("connected", onConnected);
+            timer = setTimeout(() => finish(false), timeoutMs);
+        });
     }
 
     async transitionOrStop(research, targetState, metadata, signal) {

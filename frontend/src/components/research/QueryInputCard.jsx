@@ -8,15 +8,16 @@ import { getErrorMessage } from '../../api/errorMessage';
  * QueryInputCard
  *
  * Two-mode submission:
- *  • Quick Answer  → POST /api/v1/quick-answer (Gemini direct)
- *  • Deep Research → POST /api/v1/research      (full pipeline)
+ *   • Quick Answer  → POST /api/v1/quick-answer (Gemini direct)
+ *   • Deep Research → POST /api/v1/research      (full pipeline)
  *
  * Props:
  *   onJobCreated(jobId, job)      — called after a deep-research job is enqueued
  *   onQuickAnswer({ answer, query, model }) — called after a quick answer is returned
  *   disabled                      — disable inputs while pipeline is running
+ *   initialQuery                  — explicit "run this as deep research" hand-off
  */
-export default function QueryInputCard({ onJobCreated, onQuickAnswer, disabled }) {
+export default function QueryInputCard({ onJobCreated, onQuickAnswer, disabled, initialQuery }) {
   const [query, setQuery] = useState('');
   const [mode, setMode] = useState('quick'); // 'quick' | 'deep'
   const [depth, setDepth] = useState('standard');
@@ -24,6 +25,19 @@ export default function QueryInputCard({ onJobCreated, onQuickAnswer, disabled }
   const [categories, setCategories] = useState({ web: true, academic: true, market: true });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // The mode only changes when the user asks for it (the Quick Answer
+  // "Run Deep Research Instead" action), never automatically. Adjusting state
+  // during render keeps the seed value in sync without an extra effect pass.
+  const [seedQuery, setSeedQuery] = useState(initialQuery);
+  if (initialQuery !== seedQuery) {
+    setSeedQuery(initialQuery);
+    if (initialQuery) {
+      setQuery(initialQuery);
+      setMode('deep');
+      setError('');
+    }
+  }
 
   const toggleCategory = (key) =>
     setCategories((prev) => ({ ...prev, [key]: !prev[key] }));

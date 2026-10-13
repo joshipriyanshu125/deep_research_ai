@@ -71,7 +71,10 @@ export function useResearch() {
       : jobData.evidence;
 
     if (reportResult.status === 'fulfilled') {
-      const rawReport = responsePayload(reportResult.value);
+      const payload = responsePayload(reportResult.value);
+      // A list-shaped payload (Node's GET /reports?researchId=...) must never
+      // be normalised as if it were the report document itself.
+      const rawReport = Array.isArray(payload) ? payload[0] : payload;
       if (rawReport) {
         const normalizedReport = normalizeReport(rawReport);
         const reportSources = normalizedReport.sources.length > 0
@@ -97,24 +100,31 @@ export function useResearch() {
           || reportVerification.geminiIntegration?.active,
         );
 
-        setReport({
-          ...normalizedReport,
-          sources: reportSources,
-          evidence: reportEvidence,
-          factChecks: reportFactChecks,
-          citations: reportCitations,
-          verificationSummary: hasVerificationData
-            ? reportVerification
-            : {
-              ...jobData.verificationSummary,
-              liveWebResearch: reportSources.some((source) =>
-                source.metadata?.fetched || source.metadata?.search_provider,
-              ),
-              totalSources: reportSources.length,
-              evidenceCount: reportEvidence.length,
-              attemptedClaims: reportFactChecks.length,
-            },
-        });
+        const reportBody = `${normalizedReport.markdownContent || ''}\n${normalizedReport.executiveSummary || ''}`.trim();
+
+        if (!reportBody && reportSources.length === 0 && reportCitations.length === 0) {
+          // Never present a blank document as a finished research report.
+          setError('Research finished, but its report contains no content. Please re-run this research.');
+        } else {
+          setReport({
+            ...normalizedReport,
+            sources: reportSources,
+            evidence: reportEvidence,
+            factChecks: reportFactChecks,
+            citations: reportCitations,
+            verificationSummary: hasVerificationData
+              ? reportVerification
+              : {
+                ...jobData.verificationSummary,
+                liveWebResearch: reportSources.some((source) =>
+                  source.metadata?.fetched || source.metadata?.search_provider,
+                ),
+                totalSources: reportSources.length,
+                evidenceCount: reportEvidence.length,
+                attemptedClaims: reportFactChecks.length,
+              },
+          });
+        }
       }
     }
 

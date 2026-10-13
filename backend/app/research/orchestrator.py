@@ -1,9 +1,9 @@
 import asyncio
-from typing import AsyncGenerator, Dict, Any, List
+from typing import AsyncGenerator, Dict, Any, List, Set
 from datetime import datetime, timezone
 from app.database.models.research import ResearchJob, ResearchStatus, ResearchTask
 from app.database.models.report import ResearchReport
-from app.database.models.source import Source
+from app.database.models.source import Source, normalize_url
 from app.database.models.evidence import Evidence
 from app.database.repositories.research_repo import research_repo
 from app.database.repositories.report_repo import report_repo
@@ -82,6 +82,19 @@ class ResearchOrchestrator:
                 item.update({"status": status, **details})
                 break
 
+    @staticmethod
+    def _merge_unique_sources(existing_sources: List[Source], new_sources: List[Source]) -> List[Source]:
+        """Merge previously persisted sources with this run's results.
+
+        First-wins, keyed by normalized URL (falling back to the source id) so
+        a resumed run cannot duplicate the same URL in the final report.
+        """
+        unique_sources: Dict[str, Source] = {}
+        for source in existing_sources + new_sources:
+            url_key = normalize_url(source.url or "")
+            unique_sources.setdefault(url_key or source.id, source)
+        return list(unique_sources.values())
+
     async def run_pipeline_stream(self, job: ResearchJob) -> AsyncGenerator[Dict[str, Any], None]:
         try:
             # ----------------------------------------------------------------
@@ -150,16 +163,36 @@ class ResearchOrchestrator:
             await research_repo.update_job(job)
             yield {"event": "status", "data": job.model_dump(mode="json")}
 
+            # Sources persisted by an earlier interrupted pass are loaded up
+            # front so the resumed run neither re-persists nor re-emits them.
+            existing_sources = await research_repo.get_sources_by_research(job.id)
+            known_source_keys: Set[str] = set()
+            for existing in existing_sources:
+                if existing.id:
+                    known_source_keys.add(existing.id)
+                existing_url = normalize_url(existing.url or "")
+                if existing_url:
+                    known_source_keys.add(existing_url)
+
             async def _on_task_finished(task_obj: ResearchTask, task_sources: List[Source]):
                 for s in task_sources:
-                    await research_repo.add_source(s)
-                    if s.id not in job.source_ids:
-                        job.source_ids.append(s.id)
+                    s_url = normalize_url(s.url or "")
+                    if s.id in known_source_keys or (s_url and s_url in known_source_keys):
+                        # Already persisted by a previous (interrupted) run —
+                        # adding it again would duplicate it in the report.
+                        continue
+                    persisted = await research_repo.add_source(s)
+                    if persisted.id:
+                        known_source_keys.add(persisted.id)
+                    if s_url:
+                        known_source_keys.add(s_url)
+                    if persisted.id not in job.source_ids:
+                        job.source_ids.append(persisted.id)
                     research_event_bus.emit(
                         SOURCE_PROCESSED,
                         job_id=job.id,
-                        message=f"Processing source: {s.title or s.url or 'source'}",
-                        data={"source": s.model_dump(mode="json") if hasattr(s, "model_dump") else s.__dict__},
+                        message=f"Processing source: {persisted.title or persisted.url or 'source'}",
+                        data={"source": persisted.model_dump(mode="json") if hasattr(persisted, "model_dump") else persisted.__dict__},
                     )
 
                 # Persist task completion as each parallel track returns. A
@@ -174,17 +207,13 @@ class ResearchOrchestrator:
                 )
                 await research_repo.update_job(job)
 
-            existing_sources = await research_repo.get_sources_by_research(job.id)
-            sources = existing_sources + await research_executor.execute_tasks(
+            new_sources = await research_executor.execute_tasks(
                 tasks=tasks,
                 research_id=job.id,
                 max_concurrency=mode_cfg.max_concurrency,
                 on_task_complete=_on_task_finished,
             )
-            unique_sources = {}
-            for source in sources:
-                unique_sources[source.id] = source
-            sources = list(unique_sources.values())
+            sources = self._merge_unique_sources(existing_sources, new_sources)
             from app.research.source_validator import source_validator
             sources = source_validator.filter_valid_sources(sources)
             if not sources:

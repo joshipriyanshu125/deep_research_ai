@@ -31,7 +31,26 @@ export const getReportForResearch = async (id) => {
     // Node exposes GET /reports?researchId=..., whereas FastAPI exposes the
     // resource below /research/:id/report. Keep both deployments compatible.
     if (![404, 405].includes(error.response?.status)) throw error;
-    return api.get('/reports', { params: { researchId: id } });
+    const response = await api.get('/reports', { params: { researchId: id } });
+
+    // Node answers with a list envelope ({ success, count, data: [...] }).
+    // Unwrapping it here keeps the caller's payload shape identical to the
+    // FastAPI response, so the report never renders as an empty document.
+    const payload = response.data?.data ?? response.data?.reports ?? response.data;
+    const report = Array.isArray(payload)
+      ? payload.find((item) => {
+        const linked = item?.research?._id || item?.research || item?.researchId;
+        return linked && String(linked) === String(id);
+      }) || payload[0]
+      : payload;
+
+    if (!report || Array.isArray(report)) {
+      const missing = new Error('Research report not found');
+      missing.response = { status: 404, data: { message: 'Research report not found' } };
+      throw missing;
+    }
+
+    return { ...response, data: { report } };
   }
 };
 

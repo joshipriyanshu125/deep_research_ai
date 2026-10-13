@@ -10,6 +10,15 @@ from app.middleware.auth import get_current_user
 router = APIRouter(prefix="/reports", tags=["Reports"])
 
 
+@router.get("", response_model=List[ResearchReport])
+@router.get("/", response_model=List[ResearchReport], include_in_schema=False)
+async def list_reports(researchId: Optional[str] = None, limit: int = 50):
+    reports = await report_service.list_reports(limit=limit)
+    if researchId:
+        reports = [report for report in reports if report.research_id == researchId]
+    return reports
+
+
 @router.get("/{report_id}", response_model=ResearchReport)
 async def get_report(report_id: str):
     return await report_service.get_report_by_id(report_id)

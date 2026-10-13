@@ -110,9 +110,26 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 
+// The research queue is in-memory, so any interrupted (in-flight) document
+// must be re-queued once the process is up and MongoDB is reachable. This runs
+// on every successful (re)connection so a database that comes up after the
+// server also releases stalled jobs.
+function startResearchRecovery() {
+    const researchQueue = require("./queue/researchQueue");
+    const recover = () => {
+        researchQueue.recoverInterruptedJobs().catch((error) => {
+            console.error("[ResearchQueue] Recovery failed:", error.message);
+        });
+    };
+
+    if (mongoose.connection.readyState === 1) recover();
+    else mongoose.connection.on("connected", recover);
+}
+
 if (process.env.NODE_ENV !== "test" && require.main === module) {
     app.listen(PORT, "0.0.0.0", () => {
         console.log(`Server running on http://127.0.0.1:${PORT} and http://localhost:${PORT}`);
+        startResearchRecovery();
     });
 }
 

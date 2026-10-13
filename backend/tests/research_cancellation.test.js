@@ -49,6 +49,10 @@ test('worker keeps the active marker until cancellation cleanup finishes', async
     const id = 'cancel-cleanup-research';
     let started;
     const startedPromise = new Promise((resolve) => { started = resolve; });
+    // Gate the fake pipeline on an explicit release instead of a fixed sleep:
+    // a loaded machine can otherwise unwind the job before the assertions run.
+    let release;
+    const releasePromise = new Promise((resolve) => { release = resolve; });
 
     mongoose.connection.readyState = 1;
     researchWorker.activeJobs.clear();
@@ -56,7 +60,7 @@ test('worker keeps the active marker until cancellation cleanup finishes', async
     researchWorker.cancelPromises.clear();
     researchEngine.execute = async (_researchId, signal) => {
         started();
-        await new Promise((resolve) => setTimeout(resolve, 30));
+        await releasePromise;
         assert.equal(signal.aborted, true);
     };
     Research.findOneAndUpdate = async () => ({ _id: id, status: 'cancelled' });
@@ -70,6 +74,7 @@ test('worker keeps the active marker until cancellation cleanup finishes', async
         await new Promise((resolve) => setImmediate(resolve));
         assert.equal(researchWorker.isJobActive(id), true);
 
+        release();
         const cancelled = await cancellation;
         await running;
         assert.equal(cancelled.status, 'cancelled');
