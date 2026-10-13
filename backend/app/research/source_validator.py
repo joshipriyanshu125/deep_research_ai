@@ -96,6 +96,16 @@ class SourceValidator:
 
         snippet = getattr(source, "snippet", "") or ""
         content = getattr(source, "clean_text", "") or getattr(source, "content", "") or ""
+        metadata = getattr(source, "metadata", {}) or {}
+        if (
+            metadata.get("content_provenance") == "metadata-only"
+            or metadata.get("evidence_eligible") is False
+        ):
+            return SourceValidationResult(
+                is_valid=False,
+                is_placeholder=False,
+                reason="Source contains metadata only and no source passage",
+            )
         if not snippet.strip() and not content.strip():
             return SourceValidationResult(
                 is_valid=False,

@@ -62,7 +62,25 @@ const getQuickAnswer = async (req, res) => {
         }
 
         // ── 2. Call Gemini ─────────────────────────────────────────────────
-        const { answer, model } = await askGemini(trimmed);
+        // Pass client disconnects through to the SDK so a direct answer does
+        // not keep running after the caller has gone away.
+        const abortController = new AbortController();
+        const onRequestAborted = () => abortController.abort();
+        const onResponseClose = () => {
+            if (!res.writableEnded) abortController.abort();
+        };
+        req.once?.("aborted", onRequestAborted);
+        res.once?.("close", onResponseClose);
+        if (req.aborted) abortController.abort();
+
+        let answer;
+        let model;
+        try {
+            ({ answer, model } = await askGemini(trimmed, { signal: abortController.signal }));
+        } finally {
+            req.removeListener?.("aborted", onRequestAborted);
+            res.removeListener?.("close", onResponseClose);
+        }
 
         // ── 3. Respond ─────────────────────────────────────────────────────
         // Return both the new canonical shape AND the fields the frontend
@@ -76,6 +94,7 @@ const getQuickAnswer = async (req, res) => {
         });
 
     } catch (err) {
+        if (err.name === "AbortError" || err.code === "ABORT_ERR" || req.aborted) return;
         // Log server-side (no sensitive data in message — geminiService already sanitised it)
         console.error(`[AI Controller] getQuickAnswer error: ${err.code || err.name} — ${err.message}`);
 

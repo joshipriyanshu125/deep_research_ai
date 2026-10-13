@@ -67,6 +67,17 @@ class ResearchService:
             await research_worker.enqueue_job(job)
         return job
 
+    async def cancel_research(self, job: ResearchJob) -> ResearchJob:
+        """Cancel a top-level research run and stop its local worker task."""
+        if job.status == ResearchStatus.COMPLETED:
+            raise HTTPException(status_code=409, detail="Completed research jobs cannot be cancelled")
+        if job.status == ResearchStatus.FAILED:
+            raise HTTPException(status_code=409, detail="Failed research jobs cannot be cancelled")
+
+        from app.workers.research_worker import research_worker
+        cancelled = await research_worker.cancel_job(job.id)
+        return cancelled or job
+
     async def get_job_status(self, job_id: str) -> ResearchJob:
         job = await research_repo.get_job(job_id)
         if not job:

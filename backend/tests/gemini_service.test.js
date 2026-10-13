@@ -108,3 +108,26 @@ test("returns a safe model-unavailable error after all model candidates fail", a
 
     assert.deepEqual(calls, geminiService.getGeminiModelCandidates(configuredModel));
 });
+
+test("passes quick-answer cancellation through to the Gemini SDK signal", async () => {
+    configureModel("gemini-2.5-flash");
+    let sdkSignal;
+    generateContentHandler = async ({ config }) => new Promise((_resolve, reject) => {
+        sdkSignal = config.abortSignal;
+        sdkSignal.addEventListener("abort", () => {
+            const error = new Error("SDK request aborted");
+            error.name = "AbortError";
+            reject(error);
+        }, { once: true });
+    });
+
+    const controller = new AbortController();
+    const request = geminiService.askGemini("cancel this direct answer", { signal: controller.signal });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.ok(sdkSignal, "the SDK request should receive an abort signal");
+
+    controller.abort();
+
+    await assert.rejects(request, (error) => error.name === "AbortError" || error.code === "ABORT_ERR");
+    assert.equal(sdkSignal.aborted, true);
+});

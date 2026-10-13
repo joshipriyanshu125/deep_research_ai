@@ -2,7 +2,7 @@ import json
 import re
 from typing import List, Dict, Any, Optional, Union
 from pydantic import BaseModel, Field
-from app.llm.service import LLMService, get_llm_service
+from app.llm.service import get_llm_service
 from app.llm.prompts import (
     report_prompt,
     synthesis_prompt,
@@ -48,6 +48,9 @@ class SynthesisResult(BaseModel):
     confidence: float = 0.0
     confidence_level: str = "LOW"
     confidence_factors: List[str] = Field(default_factory=list)
+    llm_used: bool = False
+    llm_provider: str = "none"
+    llm_model: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -63,6 +66,9 @@ class SynthesisResult(BaseModel):
             "confidence": round(self.confidence, 4),
             "confidence_level": self.confidence_level,
             "confidence_factors": self.confidence_factors,
+            "llm_used": self.llm_used,
+            "llm_provider": self.llm_provider,
+            "llm_model": self.llm_model,
         }
 
 
@@ -77,7 +83,7 @@ class SynthesizerAgent:
     """
 
     def __init__(self, provider_type: Optional[str] = None):
-        self.llm = get_llm_service()
+        self.llm = get_llm_service(provider_type=provider_type)
 
     async def synthesize(
         self,
@@ -93,8 +99,14 @@ class SynthesizerAgent:
         Synthesize multi-dimensional intelligence from task results, evidence, sources, and previous context.
         Occurs after evidence collection.
         """
-        evidence = self._filter_verified_evidence(evidence)
         sources = self._filter_valid_sources(sources)
+        valid_source_ids = {source.id for source in sources}
+        valid_research_ids = {source.research_id for source in sources if source.research_id}
+        evidence = self._filter_verified_evidence(
+            evidence,
+            valid_source_ids or None,
+            valid_research_ids or None,
+        )
         writer_data = self._build_writer_data(query, previous_context, evidence, sources)
         task_summary = self._format_task_results_summary(task_results)
         evidence_summary = self._format_evidence_summary(evidence)
@@ -109,6 +121,8 @@ class SynthesizerAgent:
             task_results=task_results,
             fact_checks=fact_checks,
         )
+
+        legacy_evidence = bool(evidence) and all(not (item.metadata or {}) for item in evidence)
 
         if not use_llm:
             return heuristic_res
@@ -128,19 +142,21 @@ class SynthesizerAgent:
 
             parsed = self._parse_synthesis_json(raw_response)
             if parsed:
+                grounded = self._grounded_synthesis_fields(
+                    parsed,
+                    evidence,
+                    heuristic_res,
+                    allow_legacy_model_fields=legacy_evidence,
+                )
+                provider = getattr(self.llm, "provider", None)
                 return SynthesisResult(
-                    key_findings=parsed.get("key_findings") or heuristic_res.key_findings,
-                    market_analysis=parsed.get("market_analysis") or heuristic_res.market_analysis,
-                    trends=parsed.get("trends") or heuristic_res.trends,
-                    opportunities=parsed.get("opportunities") or heuristic_res.opportunities,
-                    recommendations=parsed.get("recommendations") or heuristic_res.recommendations,
-                    risks=parsed.get("risks") or heuristic_res.risks,
-                    contradictions=parsed.get("contradictions") or heuristic_res.contradictions,
-                    uncertainty=parsed.get("uncertainty") or heuristic_res.uncertainty,
-                    executive_summary=parsed.get("executive_summary") or heuristic_res.executive_summary,
+                    **grounded,
                     confidence=heuristic_res.confidence,
                     confidence_level=heuristic_res.confidence_level,
                     confidence_factors=heuristic_res.confidence_factors,
+                    llm_used=True,
+                    llm_provider=str(getattr(provider, "provider_type", "unknown")),
+                    llm_model=str(getattr(provider, "model", "") or ""),
                 )
         except Exception as e:
             logger.warning(f"LLM synthesis error, falling back to heuristic: {e}")
@@ -161,8 +177,14 @@ class SynthesizerAgent:
         Synthesizes a publication-grade ResearchReport containing the 7 analytical dimensions
         along with structured markdown content, traceable citations, and verification audits.
         """
-        evidence = self._filter_verified_evidence(evidence)
         sources = self._filter_valid_sources(sources)
+        valid_source_ids = {source.id for source in sources}
+        valid_research_ids = {source.research_id for source in sources if source.research_id}
+        evidence = self._filter_verified_evidence(
+            evidence,
+            valid_source_ids or None,
+            valid_research_ids or None,
+        )
         writer_data = self._build_writer_data(query, previous_context, evidence, sources)
 
         # Build or normalize citations
@@ -182,6 +204,17 @@ class SynthesizerAgent:
             fact_checks=fact_checks,
             use_llm=True,
         )
+        report_synthesis = self._build_heuristic_synthesis(
+            query=query,
+            evidence=evidence,
+            sources=sources,
+            task_results=task_results,
+            fact_checks=fact_checks,
+        )
+        # A report remains conservative for legacy Evidence objects that lack
+        # the quote-validation receipt introduced by the live pipeline.
+        if evidence and all((item.metadata or {}).get("quote_validated") is True for item in evidence):
+            report_synthesis = synthesis
 
         # Build evidence summary with indexed citations for Markdown report generation
         evidence_summary = "\n".join([
@@ -200,7 +233,12 @@ class SynthesizerAgent:
             )
         except Exception as e:
             logger.warning(f"Error generating markdown body with LLM: {e}")
-            markdown_body = self._build_fallback_markdown(query, synthesis, citations)
+            markdown_body = self._build_fallback_markdown(query, report_synthesis, citations)
+
+        # A successful model response is not automatically a grounded report:
+        # keep it only when its prose contains the current run's evidence.
+        if not self._report_response_is_grounded(markdown_body, evidence):
+            markdown_body = self._build_fallback_markdown(query, report_synthesis, citations)
 
         # Inject and verify citations in body text
         markdown_body = citation_engine.inject_citations_to_text(markdown_body, evidence, citations)
@@ -210,7 +248,7 @@ class SynthesizerAgent:
         # Extract cited indices
         cited_indices = citation_engine.extract_citation_indices(markdown_body)
 
-        sections = build_report_sections(query, synthesis, full_markdown, cited_indices)
+        sections = build_report_sections(query, report_synthesis, full_markdown, cited_indices)
 
         research_id = sources[0].research_id if sources else (evidence[0].research_id if evidence else "default")
 
@@ -218,7 +256,7 @@ class SynthesizerAgent:
             research_id=research_id,
             title=f"Deep Research Report: {query}",
             executive_summary=(
-                synthesis.executive_summary
+                report_synthesis.executive_summary
                 or f"This comprehensive research investigation on '{query}' synthesized authoritative web sources, datasets, and literature into verified, citation-backed empirical conclusions."
             ),
             markdown_content=full_markdown,
@@ -226,18 +264,18 @@ class SynthesizerAgent:
             citations=citations,
             sources=citations,
             traceability_matrix=traceability_matrix,
-            key_findings=synthesis.key_findings,
-            market_analysis=synthesis.market_analysis,
-            trends=synthesis.trends,
-            opportunities=synthesis.opportunities,
-            recommendations=synthesis.recommendations,
-            risks=synthesis.risks,
-            contradictions=synthesis.contradictions,
-            uncertainty=synthesis.uncertainty,
+            key_findings=report_synthesis.key_findings,
+            market_analysis=report_synthesis.market_analysis,
+            trends=report_synthesis.trends,
+            opportunities=report_synthesis.opportunities,
+            recommendations=report_synthesis.recommendations,
+            risks=report_synthesis.risks,
+            contradictions=report_synthesis.contradictions,
+            uncertainty=report_synthesis.uncertainty,
             fact_checks=fact_checks or [],
-            confidence=synthesis.confidence,
-            confidence_level=synthesis.confidence_level,
-            confidence_factors=synthesis.confidence_factors,
+            confidence=report_synthesis.confidence,
+            confidence_level=report_synthesis.confidence_level,
+            confidence_factors=report_synthesis.confidence_factors,
             quality_score=9.6,
         )
         return report
@@ -247,12 +285,27 @@ class SynthesizerAgent:
     # -------------------------------------------------------------------------
 
     @staticmethod
-    def _filter_verified_evidence(evidence: List[Evidence]) -> List[Evidence]:
+    def _filter_verified_evidence(
+        evidence: List[Evidence],
+        valid_source_ids: Optional[set[str]] = None,
+        valid_research_ids: Optional[set[str]] = None,
+    ) -> List[Evidence]:
         """Keep only human-readable evidence that has not been refuted or disputed."""
         from app.scraping.text_normalizer import text_normalizer
 
         valid: List[Evidence] = []
         for item in evidence:
+            metadata = getattr(item, "metadata", {}) or {}
+            if valid_source_ids is not None and item.source_id not in valid_source_ids:
+                continue
+            if valid_research_ids and item.research_id and item.research_id not in valid_research_ids:
+                continue
+            if (
+                metadata.get("content_provenance") == "metadata-only"
+                or metadata.get("evidence_eligible") is False
+                or metadata.get("quote_validated") is False
+            ):
+                continue
             claim = text_normalizer.sanitize_for_evidence(item.claim or "")
             quote = text_normalizer.sanitize_for_evidence(item.quote or item.evidence or "")
             if item.verification_status in {"disputed", "refuted"}:
@@ -262,6 +315,120 @@ class SynthesizerAgent:
             item.claim, item.quote, item.evidence = claim, quote, quote
             valid.append(item)
         return valid
+
+    @staticmethod
+    def _evidence_tokens(evidence: List[Evidence]) -> set[str]:
+        import re as _re
+
+        return {
+            SynthesizerAgent._token_key(token)
+            for item in evidence
+            for token in _re.findall(
+                r"[a-z0-9]+",
+                f"{item.claim} {item.quote} {item.passage or ''} {item.source_title or ''}".lower(),
+            )
+            if len(token) > 3
+        }
+
+    @staticmethod
+    def _token_key(token: str) -> str:
+        token = str(token).lower()
+        if token.endswith("ies") and len(token) > 4:
+            return token[:-3] + "y"
+        if token.endswith("s") and len(token) > 4:
+            return token[:-1]
+        return token
+
+    @classmethod
+    def _text_is_grounded(cls, value: Any, evidence_tokens: set[str]) -> bool:
+        if not value or not evidence_tokens:
+            return False
+        import re as _re
+
+        tokens = {
+            cls._token_key(token)
+            for token in _re.findall(r"[a-z0-9]+", str(value).lower())
+            if len(token) > 3
+        }
+        return len(tokens.intersection(evidence_tokens)) >= 2
+
+    @classmethod
+    def _grounded_synthesis_fields(
+        cls,
+        parsed: Dict[str, Any],
+        evidence: List[Evidence],
+        fallback: SynthesisResult,
+        allow_legacy_model_fields: bool = False,
+    ) -> Dict[str, Any]:
+        """Merge model prose conservatively into an evidence-derived outline."""
+        tokens = cls._evidence_tokens(evidence)
+        list_fields = (
+            "key_findings",
+            "trends",
+            "opportunities",
+            "recommendations",
+            "risks",
+            "contradictions",
+            "uncertainty",
+        )
+        result: Dict[str, Any] = {}
+        for field_name in list_fields:
+            candidate = parsed.get(field_name)
+            if isinstance(candidate, list):
+                accepted = [
+                    str(item).strip()
+                    for item in candidate
+                    if str(item).strip() and cls._text_is_grounded(item, tokens)
+                ]
+            else:
+                accepted = []
+            result[field_name] = (
+                candidate
+                if allow_legacy_model_fields and isinstance(candidate, list) and candidate
+                else (accepted or getattr(fallback, field_name))
+            )
+
+        market_analysis = parsed.get("market_analysis")
+        result["market_analysis"] = (
+            str(market_analysis).strip()
+            if cls._text_is_grounded(market_analysis, tokens)
+            else (
+                str(market_analysis).strip()
+                if allow_legacy_model_fields and market_analysis
+                else fallback.market_analysis
+            )
+        )
+        executive_summary = parsed.get("executive_summary")
+        result["executive_summary"] = (
+            str(executive_summary).strip()
+            if cls._text_is_grounded(executive_summary, tokens)
+            else (
+                str(executive_summary).strip()
+                if allow_legacy_model_fields and executive_summary
+                else fallback.executive_summary
+            )
+        )
+        return result
+
+    @classmethod
+    def _report_response_is_grounded(cls, response: str, evidence: List[Evidence]) -> bool:
+        if not response or not evidence:
+            return False
+        tokens = cls._evidence_tokens(evidence)
+        import re as _re
+
+        substantive_lines = []
+        for line in str(response).splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or stripped.startswith("["):
+                continue
+            cleaned = _re.sub(r"[*_`>-]", "", stripped).strip()
+            if len(cleaned) >= 25:
+                substantive_lines.append(cleaned)
+        if not substantive_lines:
+            return False
+        grounded_lines = sum(1 for line in substantive_lines if cls._text_is_grounded(line, tokens))
+        return grounded_lines >= max(1, int(len(substantive_lines) * 0.6))
 
     @staticmethod
     def _filter_valid_sources(sources: List[Source]) -> List[Source]:
@@ -274,6 +441,8 @@ class SynthesizerAgent:
             source for source in sources
             if source.url.startswith(("http://", "https://"))
             and not source_validator.is_placeholder(source)[0]
+            and (getattr(source, "metadata", {}) or {}).get("content_provenance") != "metadata-only"
+            and (getattr(source, "metadata", {}) or {}).get("evidence_eligible") is not False
         ]
 
     def _build_writer_data(
@@ -296,6 +465,12 @@ class SynthesizerAgent:
                 "source_url": item.source_url,
                 "confidence": item.confidence,
                 "metrics": item.metrics,
+                "provenance": {
+                    "content_provenance": item.metadata.get("content_provenance"),
+                    "extraction_method": item.metadata.get("extraction_method"),
+                    "quote_validated": item.metadata.get("quote_validated"),
+                    "source_run_id": item.research_id,
+                },
             }
             for item in evidence
         ]

@@ -54,10 +54,12 @@ class AcademicPaperAgent:
         download_pdfs: bool = True,
         max_pdf_size_mb: float = 15.0,
         pdf_timeout: float = 25.0,
+        max_concurrency: int = 4,
     ):
         self.download_pdfs = download_pdfs
         self.max_pdf_size_mb = max_pdf_size_mb
         self.pdf_timeout = pdf_timeout
+        self._semaphore = asyncio.Semaphore(max(1, min(int(max_concurrency), 8)))
 
     # ------------------------------------------------------------------
     # Public API (used by ResearchAgent)
@@ -74,6 +76,7 @@ class AcademicPaperAgent:
         Main entry point. Run the full pipeline:
         query → search → enrich with PDF → return Source list.
         """
+        max_results = max(1, min(int(max_results or 1), 20))
         logger.info(f"AcademicPaperAgent executing query: {query!r}")
 
         # 1. Search across multiple academic databases
@@ -123,7 +126,9 @@ class AcademicPaperAgent:
         url = paper.get("url", "")
         pdf_url = paper.get("pdf_url")
         title = paper.get("title", "Untitled Academic Paper")
-        abstract = paper.get("abstract", "") or paper.get("snippet", "")
+        raw_abstract = str(paper.get("abstract") or "").strip()
+        raw_snippet = str(paper.get("snippet") or "").strip()
+        abstract = raw_abstract or raw_snippet
         authors = paper.get("authors", [])
         year = paper.get("year", "")
         doi = paper.get("doi", "")
@@ -139,8 +144,12 @@ class AcademicPaperAgent:
             "venue": venue,
             "citation_count": citation_count,
             "source_database": source_db,
+            "search_provider": paper.get("search_provider") or source_db,
             "pdf_url": pdf_url,
             "evidence_blocks": [],
+            "content_provenance": "abstract" if raw_abstract else ("snippet" if raw_snippet else "metadata-only"),
+            "fetched": False,
+            "evidence_eligible": bool(abstract),
         }
 
         # Content defaults to abstract
@@ -151,17 +160,24 @@ class AcademicPaperAgent:
         # Attempt PDF download and full-text extraction
         if self.download_pdfs and pdf_url:
             try:
-                pdf_bytes = await pdf_downloader.download(
-                    pdf_url,
-                    timeout=self.pdf_timeout,
-                    max_size_mb=self.max_pdf_size_mb,
-                )
+                async with self._semaphore:
+                    pdf_bytes = await asyncio.wait_for(
+                        pdf_downloader.download(
+                            pdf_url,
+                            timeout=self.pdf_timeout,
+                            max_size_mb=self.max_pdf_size_mb,
+                        ),
+                        timeout=self.pdf_timeout,
+                    )
                 if pdf_bytes:
                     pdf_data = advanced_pdf_extractor.extract(pdf_bytes)
                     if pdf_data.get("success") and pdf_data.get("text"):
                         # Use full extracted text
                         content = pdf_data["text"]
                         clean_text = pdf_data["text"]
+                        metadata["content_provenance"] = "pdf"
+                        metadata["fetched"] = True
+                        metadata["evidence_eligible"] = True
 
                         # Override metadata from PDF if better
                         if pdf_data.get("title") and not title:
@@ -190,11 +206,15 @@ class AcademicPaperAgent:
                     f"using abstract fallback"
                 )
 
-        # Ensure content is not empty
+        # Metadata is useful for discovery but is not research evidence.  Do
+        # not turn a title/author/DOI record into a synthetic passage: the
+        # evidence extractor and source validator will keep this record out of
+        # grounded claims while retaining truthful provenance for diagnostics.
         if not content.strip():
-            content = f"Academic paper: {title}. Authors: {', '.join(authors)}."
-            if doi:
-                content += f" DOI: {doi}."
+            content = ""
+            clean_text = ""
+            metadata["content_provenance"] = "metadata-only"
+            metadata["evidence_eligible"] = False
 
         # Build author credit string
         author_str = None
@@ -212,7 +232,7 @@ class AcademicPaperAgent:
             source_type=SourceType.ACADEMIC,
             content=content,
             clean_text=clean_text,
-            snippet=abstract[:500] if abstract else content[:500],
+            snippet=abstract[:500] if abstract else "",
             author=author_str,
             published_at=year if year else None,
             relevance_score=0.95,

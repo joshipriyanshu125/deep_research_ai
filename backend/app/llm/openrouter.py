@@ -1,12 +1,17 @@
-import json
+import asyncio
 import httpx
 from typing import Optional, Dict, Any
 from app.config.settings import settings
 from app.utils.logger import logger
-from app.llm.provider import BaseLLMProvider, MockLLMProvider
+from app.llm.provider import BaseLLMProvider, LLMProviderError, LLMUnavailableError
+
+
+LLM_REQUEST_TIMEOUT_SECONDS = 30.0
 
 
 class OpenRouterLLMProvider(BaseLLMProvider):
+    provider_type = "openrouter"
+
     def __init__(
         self,
         api_key: Optional[str] = None,
@@ -33,8 +38,7 @@ class OpenRouterLLMProvider(BaseLLMProvider):
         max_tokens: int = 4000,
     ) -> str:
         if not self.api_key:
-            logger.info("OpenRouter API key missing. Falling back to Mock LLM provider.")
-            return await MockLLMProvider().generate_text(prompt, system_prompt, temperature, max_tokens)
+            raise LLMUnavailableError("OpenRouter API key is not configured")
 
         messages = []
         if system_prompt:
@@ -49,22 +53,30 @@ class OpenRouterLLMProvider(BaseLLMProvider):
         }
 
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                res = await client.post(
-                    f"{self.base_url}/chat/completions",
-                    headers=self._get_headers(),
-                    json=payload,
+            async with httpx.AsyncClient(timeout=LLM_REQUEST_TIMEOUT_SECONDS) as client:
+                res = await asyncio.wait_for(
+                    client.post(
+                        f"{self.base_url}/chat/completions",
+                        headers=self._get_headers(),
+                        json=payload,
+                    ),
+                    timeout=LLM_REQUEST_TIMEOUT_SECONDS,
                 )
                 if res.status_code == 200:
                     data = res.json()
                     return data["choices"][0]["message"]["content"]
-                else:
-                    log = logger.warning if res.status_code == 429 else logger.error
-                    log(f"OpenRouter API unavailable ({res.status_code}); using Mock LLM fallback: {res.text}")
-                    return await MockLLMProvider().generate_text(prompt, system_prompt)
+                log = logger.warning if res.status_code == 429 else logger.error
+                log(f"OpenRouter API request failed with status {res.status_code}")
+                raise LLMProviderError(f"OpenRouter API request failed (status {res.status_code})")
+        except asyncio.TimeoutError as exc:
+            raise LLMProviderError("OpenRouter API request timed out") from exc
+        except httpx.RequestError as exc:
+            raise LLMProviderError("OpenRouter API request could not be completed") from exc
+        except LLMProviderError:
+            raise
         except Exception as e:
-            logger.error(f"Failed OpenRouter request: {e}")
-            return await MockLLMProvider().generate_text(prompt, system_prompt)
+            logger.error(f"Failed OpenRouter request: {type(e).__name__}")
+            raise LLMProviderError("OpenRouter API response could not be parsed") from e
 
     async def generate_structured_json(
         self,
@@ -72,8 +84,7 @@ class OpenRouterLLMProvider(BaseLLMProvider):
         system_prompt: Optional[str] = None,
     ) -> str:
         if not self.api_key:
-            logger.info("OpenRouter API key missing. Falling back to Mock LLM provider.")
-            return await MockLLMProvider().generate_structured_json(prompt, system_prompt)
+            raise LLMUnavailableError("OpenRouter API key is not configured")
 
         messages = []
         if system_prompt:
@@ -88,22 +99,30 @@ class OpenRouterLLMProvider(BaseLLMProvider):
         }
 
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                res = await client.post(
-                    f"{self.base_url}/chat/completions",
-                    headers=self._get_headers(),
-                    json=payload,
+            async with httpx.AsyncClient(timeout=LLM_REQUEST_TIMEOUT_SECONDS) as client:
+                res = await asyncio.wait_for(
+                    client.post(
+                        f"{self.base_url}/chat/completions",
+                        headers=self._get_headers(),
+                        json=payload,
+                    ),
+                    timeout=LLM_REQUEST_TIMEOUT_SECONDS,
                 )
                 if res.status_code == 200:
                     data = res.json()
                     return data["choices"][0]["message"]["content"]
-                else:
-                    log = logger.warning if res.status_code == 429 else logger.error
-                    log(f"OpenRouter JSON API unavailable ({res.status_code}); using Mock LLM fallback: {res.text}")
-                    return await MockLLMProvider().generate_structured_json(prompt, system_prompt)
+                log = logger.warning if res.status_code == 429 else logger.error
+                log(f"OpenRouter JSON API request failed with status {res.status_code}")
+                raise LLMProviderError(f"OpenRouter JSON request failed (status {res.status_code})")
+        except asyncio.TimeoutError as exc:
+            raise LLMProviderError("OpenRouter JSON request timed out") from exc
+        except httpx.RequestError as exc:
+            raise LLMProviderError("OpenRouter JSON request could not be completed") from exc
+        except LLMProviderError:
+            raise
         except Exception as e:
-            logger.error(f"OpenRouter JSON request failed: {e}")
-            return await MockLLMProvider().generate_structured_json(prompt, system_prompt)
+            logger.error(f"OpenRouter JSON request failed: {type(e).__name__}")
+            raise LLMProviderError("OpenRouter JSON response could not be parsed") from e
 
 
 def get_openrouter_provider() -> OpenRouterLLMProvider:

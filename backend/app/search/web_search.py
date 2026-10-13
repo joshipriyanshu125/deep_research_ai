@@ -1,4 +1,5 @@
 import asyncio
+import re
 import httpx
 from typing import List, Dict, Any
 from app.config.settings import settings
@@ -13,8 +14,52 @@ except ImportError:
     from duckduckgo_search import DDGS
 
 
+SEARCH_PROVIDER_TIMEOUT_SECONDS = 15.0
+DDG_TIMEOUT_SECONDS = 10.0
+
 
 class WebSearchEngine:
+    async def _wikipedia_search(self, query: str, max_results: int) -> List[Dict[str, Any]]:
+        """Use Wikipedia's public search API as a real, citation-safe fallback."""
+        try:
+            async with httpx.AsyncClient(
+                timeout=SEARCH_PROVIDER_TIMEOUT_SECONDS,
+                headers={"User-Agent": "DeepResearchAI/1.0"},
+            ) as client:
+                res = await asyncio.wait_for(
+                    client.get(
+                        "https://en.wikipedia.org/w/api.php",
+                        params={
+                            "action": "query",
+                            "list": "search",
+                            "srsearch": query,
+                            "srlimit": max_results,
+                            "format": "json",
+                        },
+                    ),
+                    timeout=SEARCH_PROVIDER_TIMEOUT_SECONDS,
+                )
+                if res.status_code != 200:
+                    return []
+                data = res.json()
+                results = []
+                for item in data.get("query", {}).get("search", []):
+                    title = (item.get("title") or "").strip()
+                    if not title:
+                        continue
+                    snippet = re.sub(r"<[^>]+>", "", item.get("snippet") or "")
+                    results.append({
+                        "title": title,
+                        "url": f"https://en.wikipedia.org/wiki/{title.replace(' ', '_')}",
+                        "snippet": snippet,
+                        "source_type": "web",
+                        "engine": "wikipedia",
+                    })
+                return results
+        except Exception as e:
+            logger.warning(f"Wikipedia search notice for '{query}': {e}")
+            return []
+
     async def search(self, query: str, max_results: int = 5) -> List[Dict[str, Any]]:
         results: List[Dict[str, Any]] = []
         seen_urls = set()
@@ -22,10 +67,13 @@ class WebSearchEngine:
         # 1. Tavily AI Search (Deep Research optimized)
         if settings.TAVILY_API_KEY:
             try:
-                async with httpx.AsyncClient(timeout=15.0) as client:
-                    res = await client.post(
-                        "https://api.tavily.com/search",
-                        json={"query": query, "api_key": settings.TAVILY_API_KEY, "max_results": max_results}
+                async with httpx.AsyncClient(timeout=SEARCH_PROVIDER_TIMEOUT_SECONDS) as client:
+                    res = await asyncio.wait_for(
+                        client.post(
+                            "https://api.tavily.com/search",
+                            json={"query": query, "api_key": settings.TAVILY_API_KEY, "max_results": max_results},
+                        ),
+                        timeout=SEARCH_PROVIDER_TIMEOUT_SECONDS,
                     )
                     if res.status_code == 200:
                         data = res.json()
@@ -47,11 +95,14 @@ class WebSearchEngine:
         if settings.SERPER_API_KEY and len(results) < max_results:
             try:
                 headers = {"X-API-KEY": settings.SERPER_API_KEY, "Content-Type": "application/json"}
-                async with httpx.AsyncClient(timeout=15.0) as client:
-                    res = await client.post(
-                        "https://google.serper.dev/search",
-                        headers=headers,
-                        json={"q": query, "num": max_results}
+                async with httpx.AsyncClient(timeout=SEARCH_PROVIDER_TIMEOUT_SECONDS) as client:
+                    res = await asyncio.wait_for(
+                        client.post(
+                            "https://google.serper.dev/search",
+                            headers=headers,
+                            json={"q": query, "num": max_results},
+                        ),
+                        timeout=SEARCH_PROVIDER_TIMEOUT_SECONDS,
                     )
                     if res.status_code == 200:
                         data = res.json()
@@ -77,7 +128,10 @@ class WebSearchEngine:
                     with DDGS() as ddgs:
                         return list(ddgs.text(query, max_results=max_results))
                 
-                raw_results = await loop.run_in_executor(None, _ddg)
+                raw_results = await asyncio.wait_for(
+                    loop.run_in_executor(None, _ddg),
+                    timeout=DDG_TIMEOUT_SECONDS,
+                )
                 for item in raw_results:
                     url = item.get("href", "")
                     if url and url not in seen_urls:
@@ -95,23 +149,11 @@ class WebSearchEngine:
         if results:
             return results[:max_results]
 
-        # 4. Fallback deterministic results if all live engines fail
-        return [
-            {
-                "title": f"Comprehensive Analysis on {query}",
-                "url": f"https://en.wikipedia.org/wiki/{query.replace(' ', '_')}",
-                "snippet": f"Overview, architectural breakthroughs, and quantitative benchmarks regarding {query}.",
-                "source_type": "web",
-                "engine": "fallback"
-            },
-            {
-                "title": f"Technical Report: State of {query} in 2026",
-                "url": f"https://research.org/topics/{query.replace(' ', '-').lower()}",
-                "snippet": f"State-of-the-art developments, scalability analysis, and open challenges in {query}.",
-                "source_type": "web",
-                "engine": "fallback"
-            }
-        ]
+        # Never manufacture source records when live providers fail. A public
+        # Wikipedia lookup is still a real, traceable source; if it also fails,
+        # return an empty list so the orchestrator can mark the run failed
+        # instead of publishing a report with invented evidence.
+        return await self._wikipedia_search(query, max_results)
 
 
 web_search_engine = WebSearchEngine()

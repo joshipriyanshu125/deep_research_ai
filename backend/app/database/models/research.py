@@ -13,6 +13,7 @@ class ResearchStatus:
     SYNTHESIZING = "synthesizing"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 class ResearchTask(BaseModel):

@@ -7,11 +7,16 @@ function sentences(text) {
         .filter((sentence) => sentence.length >= 35);
 }
 
-function evidenceFromSources(sources, query) {
+function evidenceFromSources(sources = []) {
     const evidence = [];
-    for (const source of sources) {
-        const candidates = sentences(source.content || source.snippet);
-        const selected = candidates.length > 0 ? candidates.slice(0, 3) : [source.snippet || query];
+    for (const source of sources || []) {
+        // Evidence must be traceable to an actual source passage. In
+        // particular, never fall back to the user's query when extraction
+        // produced no usable text.
+        if (!source?.url) continue;
+        const contentCandidates = sentences(source.content);
+        const snippetCandidates = contentCandidates.length > 0 ? [] : sentences(source.snippet);
+        const selected = [...contentCandidates, ...snippetCandidates].slice(0, 3);
         for (const quote of selected) {
             const metrics = [...new Set(quote.match(NUMBER_PATTERN) || [])];
             const confidence = Math.min(
@@ -115,7 +120,9 @@ function analyzeEvidence(evidence, sources, query) {
     }));
     const trends = numeric.length > 0
         ? numeric.slice(0, 4).map((item) => item.claim)
-        : [`The available sources describe current developments and unresolved questions around ${query}.`];
+        : evidence.length > 0
+            ? [`The available sources describe current developments and unresolved questions around ${query}.`]
+            : [];
     return {
         findings,
         comparisons,
@@ -124,6 +131,7 @@ function analyzeEvidence(evidence, sources, query) {
         sourceCount: sources.length,
         highConfidenceCount: highConfidence.length,
         numericEvidenceCount: numeric.length,
+        engine: "deterministic",
         summary: `Analysis combined ${sources.length} sources and ${evidence.length} extracted evidence items across ${Object.keys(byCategory).length || 1} source categories.`
     };
 }

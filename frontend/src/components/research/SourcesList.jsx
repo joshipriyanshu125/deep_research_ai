@@ -1,9 +1,13 @@
-export default function SourcesList({ sources }) {
+export default function SourcesList({ sources, emptyMessage }) {
   if (!sources || sources.length === 0) {
     return (
       <div className="loading-state">
-        <span className="spinner" />
-        Awaiting search &amp; extraction…
+        {emptyMessage || (
+          <>
+            <span className="spinner" />
+            Awaiting search &amp; extraction…
+          </>
+        )}
       </div>
     );
   }

@@ -1,12 +1,8 @@
 """
 Quick Answer API — POST /api/v1/quick-answer
 
-Routes the query through the classifier and either:
-  • Returns a direct Gemini answer (quick mode), or
-  • Signals the client to use the full deep-research pipeline.
-
-Also exposes GET /api/v1/quick-answer/classify for the frontend to
-pre-flight a query and decide which UI branch to show.
+Returns a direct Gemini answer. Deep Research is an explicit user choice and
+this endpoint never auto-routes a question into a background research job.
 """
 
 from fastapi import APIRouter, HTTPException
@@ -74,26 +70,14 @@ async def classify_query_endpoint(q: str):
 @router.post("/", response_model=RouteResponse, include_in_schema=False)
 async def quick_answer(request: QuickAnswerRequest):
     """
-    Smart query router:
-    - Simple queries  → direct Gemini answer (no pipeline overhead)
-    - Complex queries → instructs client to launch Deep Research pipeline
+    Explicit Quick Answer endpoint — direct Gemini response, no research job.
     """
     query = request.query.strip()
-    mode = classify_query(query)
-
-    if mode == "deep":
-        logger.info(f"[QueryRouter] Routing '{query[:60]}...' → Deep Research pipeline")
-        return RouteResponse(
-            query=query,
-            mode="deep",
-            message=(
-                "This query requires deep research. "
-                "Please use the Deep Research pipeline for a comprehensive report."
-            ),
-        )
+    if not query:
+        raise HTTPException(status_code=422, detail="Query cannot be empty.")
 
     # Quick mode — call Gemini
-    logger.info(f"[QueryRouter] Routing '{query[:60]}...' → Quick Answer (Gemini)")
+    logger.info("[QuickAnswer] Requesting a direct Gemini answer.")
     try:
         result = await quick_answer_service.answer(query)
         return RouteResponse(
@@ -103,16 +87,8 @@ async def quick_answer(request: QuickAnswerRequest):
             model=result["model"],
         )
     except RuntimeError as exc:
-        # Gemini key not configured — fall back gracefully to deep pipeline
-        logger.warning(f"[QuickAnswer] Gemini unavailable ({exc}). Falling back to deep mode.")
-        return RouteResponse(
-            query=query,
-            mode="deep",
-            message=(
-                "Quick Answer is not configured (missing GEMINI_API_KEY). "
-                "Launching the full Deep Research pipeline instead."
-            ),
-        )
+        logger.warning(f"[QuickAnswer] Gemini unavailable: {exc}")
+        raise HTTPException(status_code=503, detail=str(exc))
     except Exception as exc:
         logger.error(f"[QuickAnswer] Unexpected error: {exc}")
         raise HTTPException(status_code=500, detail=f"Quick Answer failed: {exc}")

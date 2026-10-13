@@ -1,7 +1,7 @@
 import json
 import re
-from typing import List, Dict, Any, Optional, Tuple, Union
-from app.llm.service import LLMService, get_llm_service
+from typing import List, Dict, Any, Optional
+from app.llm.service import get_llm_service, llm_provenance
 from app.llm.prompts import planner_prompt, PLANNER_SYSTEM_PROMPT
 from app.database.models.research import ResearchTask, ResearchPlan
 from app.utils.logger import logger
@@ -28,6 +28,87 @@ _SIMPLE_SIGNALS = [
 _COMPLEX_PATTERN = re.compile("|".join(_COMPLEX_SIGNALS), re.IGNORECASE)
 _SIMPLE_PATTERN = re.compile("|".join(_SIMPLE_SIGNALS), re.IGNORECASE)
 
+_CATEGORY_ALIASES = {
+    "web": "web",
+    "news": "web",
+    "online": "web",
+    "academic": "academic",
+    "academia": "academic",
+    "papers": "academic",
+    "paper": "academic",
+    "market": "market",
+    "markets": "market",
+    "financial": "market",
+}
+_PLANNER_STOP_WORDS = {
+    "what", "who", "why", "how", "when", "where", "which", "does", "did",
+    "can", "could", "should", "would", "will", "the", "and", "for", "with",
+    "about", "into", "from", "that", "this", "current", "identify", "explain",
+}
+_MARKET_INTENT = re.compile(
+    r"\b(market|investment|investor|revenue|sales|pricing|industry|adoption|"
+    r"company|companies|commercial|supply\s+chain|economic|forecast)\b",
+    re.IGNORECASE,
+)
+_ACADEMIC_INTENT = re.compile(
+    r"\b(research|paper|study|literature|theor(y|etical)|algorithm|architecture|"
+    r"benchmark|scientific|methodology|experiment|quantum|biology|physics|medical)\b",
+    re.IGNORECASE,
+)
+
+_FALLBACK_TASK_TEMPLATES = {
+    "web": (
+        (
+            "What current, source-backed facts describe {query}?",
+            "{query} current authoritative overview evidence",
+        ),
+        (
+            "What recent developments or primary-source updates matter for {query}?",
+            "{query} latest developments primary sources",
+        ),
+    ),
+    "academic": (
+        (
+            "What do published studies and technical literature conclude about {query}?",
+            "{query} peer reviewed research findings",
+        ),
+        (
+            "Which methods, benchmarks, or limitations are documented for {query}?",
+            "{query} empirical study benchmark methodology limitations",
+        ),
+    ),
+    "market": (
+        (
+            "What commercial applications, participants, or adoption evidence is documented for {query}?",
+            "{query} commercial applications adoption industry evidence",
+        ),
+        (
+            "What economic, pricing, or implementation risks are documented for {query}?",
+            "{query} pricing economics implementation risks evidence",
+        ),
+    ),
+}
+
+
+def _normalise_categories(categories: Optional[List[str]]) -> List[str]:
+    """Return stable, supported category names while preserving user order."""
+    if not categories:
+        return []
+    result: List[str] = []
+    for value in categories:
+        normalised = _CATEGORY_ALIASES.get(str(value).strip().lower())
+        if normalised and normalised not in result:
+            result.append(normalised)
+    return result
+
+
+def _query_tokens(query: str) -> set[str]:
+    return {
+        token
+        for token in re.findall(r"[a-z0-9]+", query.lower())
+        if token not in _PLANNER_STOP_WORDS and (len(token) > 2 or token in {"ai", "ev", "ml"})
+    }
+
 
 class PlannerAgent:
     """
@@ -39,7 +120,7 @@ class PlannerAgent:
     """
 
     def __init__(self, provider_type: Optional[str] = None):
-        self.llm = get_llm_service()
+        self.llm = get_llm_service(provider_type=provider_type)
 
     # ------------------------------------------------------------------
     # Day 47 — Dynamic planning helpers
@@ -104,7 +185,7 @@ class PlannerAgent:
         Trim or pad the task list to match the dynamic task count target.
         Trimming preserves category diversity; padding adds web tasks.
         """
-        target = self.estimate_task_count(query, depth, breadth)
+        target = max(self.estimate_task_count(query, depth, breadth), len({t.category for t in tasks}))
         if len(tasks) <= target:
             return tasks
         # Trim: keep a balanced set across categories
@@ -126,13 +207,20 @@ class PlannerAgent:
         self,
         query: str,
         depth: int = 2,
-        breadth: int = 3
+        breadth: int = 3,
+        categories: Optional[List[str]] = None,
     ) -> ResearchPlan:
         """Analyze research objective and produce a structured ResearchPlan with atomic tasks."""
+        active_categories = self._resolve_categories(query, categories)
         try:
             raw_json = await self.llm.execute_prompt(
                 planner_prompt,
-                variables={"query": query, "depth": depth, "breadth": breadth},
+                variables={
+                    "query": query,
+                    "depth": depth,
+                    "breadth": breadth,
+                    "categories": ", ".join(active_categories),
+                },
                 is_json=True,
             )
             parsed = json.loads(raw_json)
@@ -141,7 +229,8 @@ class PlannerAgent:
             tasks_data = []
 
             if isinstance(parsed, dict):
-                research_goal = parsed.get("research_goal", query)
+                candidate_goal = str(parsed.get("research_goal") or query).strip()
+                research_goal = candidate_goal if self._mentions_query(candidate_goal, query) else query
                 tasks_data = parsed.get("tasks", [])
             elif isinstance(parsed, list):
                 tasks_data = parsed
@@ -149,16 +238,29 @@ class PlannerAgent:
             tasks: List[ResearchTask] = []
             for i, item in enumerate(tasks_data):
                 if isinstance(item, dict):
-                    task_id = item.get("id") or f"task_{i + 1}"
-                    question = item.get("question")
-                    task_query = item.get("query") or question or query
-                    category = item.get("category", "web")
+                    question = str(item.get("question") or "").strip()
+                    task_query = str(item.get("query") or question or query).strip()
+                    category = _CATEGORY_ALIASES.get(
+                        str(item.get("category") or "web").strip().lower(),
+                        "",
+                    )
+                    # Reject a provider response that is about another
+                    # familiar topic (for example a canned India EV plan).
+                    if category not in active_categories or not self._mentions_query(
+                        f"{question} {task_query}", query
+                    ):
+                        continue
+                    task_id = str(item.get("id") or f"task_{len(tasks) + 1}")
                     depth_level = item.get("depth", 1)
+                    try:
+                        depth_level = max(1, int(depth_level))
+                    except (TypeError, ValueError):
+                        depth_level = 1
 
                     tasks.append(
                         ResearchTask(
                             id=task_id,
-                            question=question,
+                            question=question or task_query,
                             query=task_query,
                             category=category,
                             depth=depth_level,
@@ -166,6 +268,7 @@ class PlannerAgent:
                     )
 
             if tasks:
+                tasks = self._ensure_category_coverage(tasks, query, active_categories)
                 # Day 47: adjust task list to match dynamic complexity target
                 tasks = self._adjust_tasks_for_complexity(tasks, query, depth, breadth)
                 complexity = self.classify_complexity(query)
@@ -179,52 +282,118 @@ class PlannerAgent:
                     tasks=tasks,
                     depth=depth,
                     breadth=breadth,
-                    metadata={"complexity": complexity, "estimated_tasks": estimated},
+                    metadata={
+                        "complexity": complexity,
+                        "estimated_tasks": estimated,
+                        "categories": active_categories,
+                        "planner_provider": llm_provenance(self.llm),
+                        "llm_used": llm_provenance(self.llm).get("llm_used", False),
+                    },
                 )
 
         except Exception as e:
             logger.warning(f"Planner Agent fallback triggered for query '{query}': {e}")
 
-        # Robust multi-track fallback decomposition
-        fallback_tasks = [
-            ResearchTask(
-                id="task_1",
-                question=f"What are the core fundamentals and current landscape of {query}?",
-                query=f"Overview and technological fundamentals of {query}",
-                category="web",
-                depth=1,
-            ),
-            ResearchTask(
-                id="task_2",
-                question=f"What are the empirical benchmarks, academic studies, and theoretical papers on {query}?",
-                query=f"Empirical benchmarks theoretical papers studies on {query}",
-                category="academic",
-                depth=1,
-            ),
-            ResearchTask(
-                id="task_3",
-                question=f"What is the market growth, key players, adoption figures, and investment risks for {query}?",
-                query=f"Market landscape adoption figures major companies investment risks for {query}",
-                category="market",
-                depth=1,
-            ),
-        ]
+        fallback_tasks = self._build_fallback_tasks(query, breadth, active_categories)
 
         return ResearchPlan(
             research_goal=query,
-            tasks=fallback_tasks[:max(1, breadth)],
+            tasks=fallback_tasks,
             depth=depth,
             breadth=breadth,
+            metadata={
+                "complexity": self.classify_complexity(query),
+                "estimated_tasks": self.estimate_task_count(query, depth, breadth),
+                "categories": active_categories,
+                "planner_provider": llm_provenance(self.llm),
+                "llm_used": False,
+            },
         )
+
+    def _resolve_categories(self, query: str, categories: Optional[List[str]]) -> List[str]:
+        requested = _normalise_categories(categories)
+        if requested:
+            return requested
+
+        # Infer a narrow default plan.  Market is included only when the
+        # objective contains market/commercial intent; technical questions do
+        # not receive unrelated investment tracks.
+        if _MARKET_INTENT.search(query):
+            return ["web", "academic", "market"]
+        if _ACADEMIC_INTENT.search(query):
+            return ["web", "academic"]
+        return ["web"]
+
+    @staticmethod
+    def _mentions_query(text: str, query: str) -> bool:
+        tokens = _query_tokens(query)
+        if not tokens:
+            return bool(text.strip())
+        text_tokens = set(re.findall(r"[a-z0-9]+", text.lower()))
+        return bool(tokens.intersection(text_tokens))
+
+    def _build_fallback_tasks(
+        self,
+        query: str,
+        breadth: int,
+        categories: List[str],
+    ) -> List[ResearchTask]:
+        count = max(len(categories), min(8, int(breadth or 1)))
+        tasks: List[ResearchTask] = []
+        for i in range(count):
+            category = categories[i % len(categories)]
+            templates = _FALLBACK_TASK_TEMPLATES[category]
+            question_template, query_template = templates[(i // len(categories)) % len(templates)]
+            tasks.append(
+                ResearchTask(
+                    id=f"task_{i + 1}",
+                    question=question_template.format(query=query),
+                    query=query_template.format(query=query),
+                    category=category,
+                    depth=1,
+                )
+            )
+        return tasks
+
+    def _ensure_category_coverage(
+        self,
+        tasks: List[ResearchTask],
+        query: str,
+        categories: List[str],
+    ) -> List[ResearchTask]:
+        present = {task.category for task in tasks}
+        result = list(tasks)
+        next_id = len(result) + 1
+        for category in categories:
+            if category in present:
+                continue
+            question_template, query_template = _FALLBACK_TASK_TEMPLATES[category][0]
+            result.append(
+                ResearchTask(
+                    id=f"task_{next_id}",
+                    question=question_template.format(query=query),
+                    query=query_template.format(query=query),
+                    category=category,
+                    depth=1,
+                )
+            )
+            next_id += 1
+        return result
 
     async def plan_research_tasks(
         self,
         query: str,
         depth: int = 2,
-        breadth: int = 3
+        breadth: int = 3,
+        categories: Optional[List[str]] = None,
     ) -> List[ResearchTask]:
         """Convenience method returning direct List[ResearchTask] for executor compatibility."""
-        plan = await self.create_plan(query, depth=depth, breadth=breadth)
+        plan = await self.create_plan(
+            query,
+            depth=depth,
+            breadth=breadth,
+            categories=categories,
+        )
         return plan.tasks
 
 

@@ -8,6 +8,7 @@ import json
 import re
 from typing import List, Optional
 from app.utils.logger import logger
+from app.llm.prompts import PromptConfig
 
 
 # ---------------------------------------------------------------------------
@@ -23,6 +24,17 @@ _QUERY_TEMPLATES = [
     "{topic} investment risks challenges",
     "{topic} statistics data report",
     "{topic} latest news developments",
+]
+
+_GENERAL_TEMPLATES = [
+    "{topic}",
+    "{topic} authoritative explanation evidence",
+    "{topic} primary sources findings",
+    "{topic} latest developments {year}",
+    "{topic} comparisons limitations",
+    "{topic} published data references",
+    "{topic} review analysis",
+    "{topic} open questions",
 ]
 
 _ACADEMIC_TEMPLATES = [
@@ -87,8 +99,9 @@ class QueryGenerator:
     _LLM_SYSTEM_PROMPT = (
         "You are a research strategist. Given a research question and topic, "
         "generate diverse, specific, and targeted web search queries. "
-        "Each query should explore a different angle: market size, growth, "
-        "key players, policy, technology, risks, comparisons, or recent news. "
+        "Each query must preserve the requested subject and explore relevant "
+        "facts, primary sources, comparisons, limitations, or recent findings. "
+        "Only use commercial or investment angles when the question requests them. "
         "Return ONLY a valid JSON array of strings. No explanation, no markdown."
     )
 
@@ -112,6 +125,7 @@ class QueryGenerator:
             Deduplicated list of search query strings.
         """
         topic = topic or _extract_topic(question)
+        n = max(1, min(int(n or 1), 12))
         queries: List[str] = []
 
         # --- 1. Try LLM ---
@@ -124,7 +138,49 @@ class QueryGenerator:
         if not queries:
             queries = self._template_generate(topic, n, category)
 
-        queries = _deduplicate(queries)[:n]
+        # A provider can return a polished-looking list for a different
+        # familiar subject.  Keep only queries that retain at least one
+        # informative token from the requested topic/question.
+        topic_tokens = {
+            token for token in re.findall(r"[a-z0-9]+", topic.lower())
+            if len(token) > 2 or token in {"ai", "ev", "ml"}
+        }
+        relevant_queries = [
+            str(q).strip()
+            for q in queries
+            if str(q).strip()
+            and (
+                not topic_tokens
+                or topic_tokens.intersection(re.findall(r"[a-z0-9]+", str(q).lower()))
+            )
+        ]
+        if relevant_queries:
+            canonical_topic = topic.strip()
+            # When a provider returns only a partial list, normalize the
+            # partial results before filling the remainder so the complete
+            # bounded set has one auditable subject label.  Preserve a full
+            # provider list verbatim for compatibility with provider-specific
+            # query phrasing and exact-query consumers.
+            if len(relevant_queries) < n:
+                queries = [
+                    q if canonical_topic.lower() in q.lower() else f"{canonical_topic} {q}"
+                    for q in relevant_queries
+                ]
+            else:
+                queries = relevant_queries
+        else:
+            queries = self._template_generate(topic, n, category)
+
+        queries = _deduplicate(queries)
+        if len(queries) < n:
+            # Keep any valid provider queries, then fill the requested bounded
+            # count with deterministic subject-preserving queries.
+            for fallback_query in self._template_generate(topic, n, category):
+                if fallback_query.strip().lower() not in {item.lower() for item in queries}:
+                    queries.append(fallback_query)
+                if len(queries) >= n:
+                    break
+        queries = queries[:n]
         logger.info(f"QueryGenerator produced {len(queries)} queries for: '{question[:60]}'")
         return queries
 
@@ -143,11 +199,16 @@ class QueryGenerator:
             f"Generate exactly {n} distinct search queries covering different angles.\n"
             "Return a JSON array of strings only."
         )
+        prompt_config = PromptConfig(
+            name="query_generation",
+            version="1.0.0",
+            system_prompt=self._LLM_SYSTEM_PROMPT,
+            user_template="{prompt}",
+            temperature=0.2,
+            max_tokens=1200,
+        )
         raw = await llm.execute_prompt(
-            type("_P", (), {
-                "system": self._LLM_SYSTEM_PROMPT,
-                "user": "{prompt}",
-            })(),
+            prompt_config,
             variables={"prompt": prompt},
             is_json=True,
         )
@@ -174,8 +235,10 @@ class QueryGenerator:
             templates = _ACADEMIC_TEMPLATES
         elif category == "market":
             templates = _MARKET_TEMPLATES
-        else:
+        elif re.search(r"\b(market|investment|revenue|sales|industry|pricing)\b", topic, re.IGNORECASE):
             templates = _QUERY_TEMPLATES
+        else:
+            templates = _GENERAL_TEMPLATES
 
         queries = []
         for tmpl in templates[:n]:

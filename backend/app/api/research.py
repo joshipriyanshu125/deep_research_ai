@@ -66,6 +66,12 @@ async def list_research_modes():
 async def get_research_status(job_id: str):
     return await research_service.get_job_status(job_id)
 
+
+@router.post("/{job_id}/cancel", response_model=ResearchJob)
+async def cancel_research(job_id: str):
+    job = await research_service.get_job_status(job_id)
+    return await research_service.cancel_research(job)
+
 @router.get("/{job_id}/events", response_model=List[ResearchEventRecord])
 async def get_research_events(job_id: str):
     await research_service.get_job_status(job_id)

@@ -2,11 +2,23 @@ import json
 import re
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
-from app.config.settings import settings
-from app.utils.logger import logger
+
+
+class LLMProviderError(RuntimeError):
+    """Base error raised when a configured language-model provider fails."""
+
+
+class LLMUnavailableError(LLMProviderError):
+    """Raised when no configured provider can serve an LLM request."""
 
 
 class BaseLLMProvider(ABC):
+    # These attributes are intentionally part of the lightweight provider
+    # contract.  Agents use them for provenance without depending on a
+    # concrete vendor SDK.
+    provider_type: str = "unknown"
+    model: str = ""
+
     @abstractmethod
     async def generate_text(
         self,
@@ -21,12 +33,52 @@ class BaseLLMProvider(ABC):
     async def generate_structured_json(
         self,
         prompt: str,
-        system_prompt: Optional[str] = None
+        system_prompt: Optional[str] = None,
     ) -> str:
         pass
 
 
+class UnavailableLLMProvider(BaseLLMProvider):
+    """Explicit no-op provider used instead of silently fabricating answers.
+
+    A missing key or an unavailable configured provider must be observable by
+    the caller.  Agents can then use their deterministic, query-specific
+    fallback paths and report that model analysis was unavailable.
+    """
+
+    provider_type = "unavailable"
+    model = ""
+
+    def __init__(self, reason: str = "No configured LLM provider is available"):
+        self.reason = reason
+
+    async def generate_text(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 4000,
+    ) -> str:
+        raise LLMUnavailableError(self.reason)
+
+    async def generate_structured_json(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+    ) -> str:
+        raise LLMUnavailableError(self.reason)
+
 class MockLLMProvider(BaseLLMProvider):
+    """Deterministic test provider.
+
+    This provider deliberately retains its historical canned responses for
+    tests that explicitly inject ``MockLLMProvider``.  Production provider
+    selection never falls back to this class implicitly.
+    """
+
+    provider_type = "mock"
+    model = "mock-llm"
+
     async def generate_text(
         self,
         prompt: str,

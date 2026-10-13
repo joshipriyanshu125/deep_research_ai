@@ -121,6 +121,7 @@ class ResearchOrchestrator:
                 job.query,
                 depth=job.depth,
                 breadth=job.breadth,
+                categories=job.categories,
             )
             job.tasks = tasks
             self._record_stage(job, "planner", "completed", task_count=len(tasks))
@@ -161,6 +162,18 @@ class ResearchOrchestrator:
                         data={"source": s.model_dump(mode="json") if hasattr(s, "model_dump") else s.__dict__},
                     )
 
+                # Persist task completion as each parallel track returns. A
+                # polling client should not see every vector stuck at
+                # "pending" until the entire search phase has finished.
+                job.tasks = tasks
+                finished = sum(1 for task in tasks if task.status in {"completed", "failed"})
+                job.progress_percentage = 40 + round((finished / max(1, len(tasks))) * 20)
+                job.current_step = (
+                    f"[{mode_cfg.display_name}] Completed {finished}/{len(tasks)} research tracks; "
+                    "collecting source results..."
+                )
+                await research_repo.update_job(job)
+
             existing_sources = await research_repo.get_sources_by_research(job.id)
             sources = existing_sources + await research_executor.execute_tasks(
                 tasks=tasks,
@@ -174,6 +187,10 @@ class ResearchOrchestrator:
             sources = list(unique_sources.values())
             from app.research.source_validator import source_validator
             sources = source_validator.filter_valid_sources(sources)
+            if not sources:
+                raise RuntimeError(
+                    "No usable sources were collected. Live search providers returned no verifiable results."
+                )
             job.source_ids = [source.id for source in sources]
             self._record_stage(
                 job, "research_tracks", "completed", source_count=len(sources),
@@ -238,6 +255,10 @@ class ResearchOrchestrator:
                         message=f"Evidence extracted",
                         data={"evidence": ev.model_dump(mode="json") if hasattr(ev, "model_dump") else ev.__dict__},
                     )
+            if not all_evidence:
+                raise RuntimeError(
+                    "Sources were collected, but no source-grounded evidence could be extracted."
+                )
             self._record_stage(job, "evidence_engine", "completed", evidence_count=len(all_evidence))
             self._record_iteration(job, 1, "completed", evidence_count=len(all_evidence))
             await research_repo.update_job(job)
@@ -401,6 +422,7 @@ class ResearchOrchestrator:
             }
 
             # First synthesis pass (always runs)
+            await self._raise_if_cancelled(job)
             report: ResearchReport = await synthesizer_agent.synthesize_report(
                 query=job.query,
                 sources=sources,
@@ -447,6 +469,7 @@ class ResearchOrchestrator:
                     "data": {"mode": mode_cfg.mode, "source_count": len(sources)},
                 }
 
+            await self._raise_if_cancelled(job)
             report.research_id = job.id
             await report_repo.create(report)
             self._record_stage(job, "writer", "completed", report_id=report.id)
@@ -476,6 +499,7 @@ class ResearchOrchestrator:
             pipeline_summary = research_agent_orchestrator.get_pipeline_summary(job.id)
 
             # 7. Completion
+            await self._raise_if_cancelled(job)
             job.report_id = report.id
             job.status = ResearchStatus.COMPLETED
             job.checkpoint_phase = "completed"
@@ -507,7 +531,24 @@ class ResearchOrchestrator:
                     "research_mode": mode_cfg.mode,
                 }
             }
+        except asyncio.CancelledError:
+            # Cancellation is an intentional terminal state, not a failed
+            # research run. The worker/API normally persists this first, but
+            # keep the orchestrator safe when it is cancelled directly.
+            if job.status != ResearchStatus.CANCELLED:
+                job.status = ResearchStatus.CANCELLED
+                job.progress_percentage = 0
+                job.current_step = "Research cancelled by user."
+                job.checkpoint_phase = "cancelled"
+                job.completed_at = datetime.now(timezone.utc)
+                try:
+                    await research_repo.update_job(job)
+                except Exception:
+                    pass
+            return
         except Exception as exc:
+            if job.status == ResearchStatus.CANCELLED:
+                return
             logger.exception(f"Research pipeline failed for job {job.id}: {exc}")
             job.status = ResearchStatus.FAILED
             job.error_message = str(exc)
@@ -525,6 +566,12 @@ class ResearchOrchestrator:
             )
             yield {"event": "research_failed", "data": {"error": str(exc), "job": job.model_dump(mode="json")}}
             raise
+
+    @staticmethod
+    async def _raise_if_cancelled(job: ResearchJob) -> None:
+        latest = await research_repo.get_job(job.id)
+        if latest and latest.status == ResearchStatus.CANCELLED:
+            raise asyncio.CancelledError
 
 
 research_orchestrator = ResearchOrchestrator()

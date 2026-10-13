@@ -189,13 +189,14 @@ const cancelResearch = async (req, res) => {
         const researchId = req.params.id;
 
         const cancelled = await researchQueue.cancel(researchId);
+        const status = cancelled?.status || "cancelled";
 
         return res.status(200).json({
             success: true,
-            message: "Research job cancelled successfully",
+            message: status === "completed" ? "Research job has already completed" : "Research job cancelled successfully",
             research_id: researchId,
             id: researchId,
-            status: "cancelled",
+            status,
             data: cancelled
         });
     } catch (error) {

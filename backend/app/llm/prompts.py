@@ -78,7 +78,7 @@ class PromptConfig:
 # 1. Planner Prompt
 planner_prompt = PromptConfig(
     name="planner_prompt",
-    version="1.1.0",
+    version="1.2.0",
     description="Decomposes research topics into structured research goals and sub-questions.",
     model=None,
     temperature=0.2,
@@ -101,6 +101,8 @@ Respond strictly in valid JSON format using the following schema:
 }""",
     user_template="""Decompose and plan research for query: '{query}'.
 Depth level: {depth}. Number of sub-tasks: {breadth}.
+Requested categories (use only these when provided): {categories}
+Every task must stay about the supplied query. Do not substitute a familiar market, country, or industry example.
 Return structured JSON containing 'research_goal' and an array of 'tasks' with id, question, query, and category ('web', 'academic', or 'market').""",
     metadata={"agent": "PlannerAgent", "task": "decomposition"},
 )

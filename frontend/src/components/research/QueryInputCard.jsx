@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Play, Layers, Globe, BookOpen, TrendingUp, Zap, Brain } from 'lucide-react';
+import { Play, Layers, Globe, BookOpen, TrendingUp, Zap } from 'lucide-react';
 import { createResearch } from '../../api/research';
 import { quickAnswer } from '../../api/research';
 import { getErrorMessage } from '../../api/errorMessage';
@@ -18,7 +18,7 @@ import { getErrorMessage } from '../../api/errorMessage';
  */
 export default function QueryInputCard({ onJobCreated, onQuickAnswer, disabled }) {
   const [query, setQuery] = useState('');
-  const [mode, setMode] = useState('auto'); // 'auto' | 'quick' | 'deep'
+  const [mode, setMode] = useState('quick'); // 'quick' | 'deep'
   const [depth, setDepth] = useState('standard');
   const [breadth, setBreadth] = useState(3);
   const [categories, setCategories] = useState({ web: true, academic: true, market: true });
@@ -37,13 +37,14 @@ export default function QueryInputCard({ onJobCreated, onQuickAnswer, disabled }
 
     // Button wrappers pass an explicit mode; keyboard submission uses the
     // selected mode from state. This keeps click events out of the mode value.
-    const submissionMode = ['auto', 'quick', 'deep'].includes(requestedMode)
+    const submissionMode = ['quick', 'deep'].includes(requestedMode)
       ? requestedMode
       : mode;
 
     try {
-      // Quick-only or Auto mode → try quick-answer router first
-      if (submissionMode === 'quick' || submissionMode === 'auto') {
+      // Quick Answer is deliberately explicit. A response that asks for deep
+      // research must never silently create a background job.
+      if (submissionMode === 'quick') {
         const { data } = await quickAnswer(trimmed);
 
         if (data.mode === 'quick' && data.answer) {
@@ -53,12 +54,8 @@ export default function QueryInputCard({ onJobCreated, onQuickAnswer, disabled }
           return;
         }
 
-        // Router said "deep" — fall through only if mode is 'auto'
-        if (submissionMode === 'quick') {
-          // User explicitly chose Quick but it fell back to deep — inform them
-          setError('This question requires deep research. Switching to Deep Research mode…');
-          // Still proceed to deep pipeline below
-        }
+        setError('Quick Answer is unavailable for this query. Select Deep Research to run the full source-backed pipeline.');
+        return;
       }
 
       // Deep Research pipeline
@@ -90,22 +87,11 @@ export default function QueryInputCard({ onJobCreated, onQuickAnswer, disabled }
 
   const isDeepMode = mode === 'deep';
   const isQuickMode = mode === 'quick';
-  const isAutoMode = mode === 'auto';
 
   return (
     <>
       {/* ── Mode Toggle ── */}
       <div className="mode-toggle-bar" role="group" aria-label="Research mode">
-        <button
-          id="mode-auto-btn"
-          className={`mode-btn ${isAutoMode ? 'mode-btn--active' : ''}`}
-          onClick={() => setMode('auto')}
-          disabled={loading || disabled}
-          title="Auto-detect: simple questions get a direct Gemini answer; complex ones use the full pipeline"
-        >
-          <Brain size={12} />
-          AUTO
-        </button>
         <button
           id="mode-quick-btn"
           className={`mode-btn ${isQuickMode ? 'mode-btn--active mode-btn--quick' : ''}`}
@@ -130,7 +116,6 @@ export default function QueryInputCard({ onJobCreated, onQuickAnswer, disabled }
 
       {/* ── Mode hint ── */}
       <div className="mode-hint">
-        {isAutoMode && 'Auto mode: simple questions → direct answer · complex queries → full pipeline'}
         {isQuickMode && 'Quick Answer: Gemini answers directly — instant, no sources generated'}
         {isDeepMode && 'Deep Research: multi-agent pipeline — planner → search → fact-check → report'}
       </div>
@@ -142,9 +127,7 @@ export default function QueryInputCard({ onJobCreated, onQuickAnswer, disabled }
         placeholder={
           isQuickMode
             ? 'Ask a quick question — e.g. "What is quantum computing?" (Ctrl+Enter)'
-            : isDeepMode
-            ? 'Enter a complex research query — e.g. "Analyze the Indian EV market…" (Ctrl+Enter)'
-            : 'Ask anything — simple questions get instant answers, complex ones launch full research… (Ctrl+Enter)'
+            : 'Enter a complex research query — e.g. "Analyze the Indian EV market…" (Ctrl+Enter)'
         }
         value={query}
         onChange={(e) => setQuery(e.target.value)}
@@ -156,7 +139,7 @@ export default function QueryInputCard({ onJobCreated, onQuickAnswer, disabled }
 
       <div className="query-divider" />
 
-      {/* ── Options (only relevant in deep / auto mode) ── */}
+      {/* ── Options (only relevant in Deep Research mode) ── */}
       {!isQuickMode && (
         <div className="options-bar">
           <div className="option-group">
@@ -222,17 +205,6 @@ export default function QueryInputCard({ onJobCreated, onQuickAnswer, disabled }
         </div>
       )}
 
-      {/* ── Auto-mode submit bar ── */}
-      {isAutoMode && (
-        <div className="options-bar">
-          <div className="options-spacer" />
-          <button id="auto-submit-btn" className="btn-primary" onClick={() => handleSubmit('auto')} disabled={loading || disabled}>
-            {loading || disabled
-              ? <><span className="spinner" style={{ width: 14, height: 14 }} /> {disabled ? 'RUNNING…' : 'ROUTING…'}</>
-              : <><Brain size={14} /> SMART SUBMIT</>}
-          </button>
-        </div>
-      )}
     </>
   );
 }

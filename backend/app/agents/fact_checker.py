@@ -1,7 +1,7 @@
 import json
 import re
 from typing import List, Dict, Any, Optional, Union
-from app.llm.service import LLMService, get_llm_service
+from app.llm.service import get_llm_service
 from app.llm.prompts import fact_check_prompt, FACT_CHECKER_SYSTEM_PROMPT
 from app.database.models.evidence import Evidence
 from app.database.models.source import Source
@@ -27,7 +27,7 @@ class FactCheckerAgent:
     """
 
     def __init__(self, provider_type: Optional[str] = None):
-        self.llm = get_llm_service()
+        self.llm = get_llm_service(provider_type=provider_type)
 
     def find_supporting_evidence(
         self,
@@ -47,6 +47,13 @@ class FactCheckerAgent:
 
         scored_evidences = []
         for ev in evidence_pool:
+            ev_metadata = getattr(ev, "metadata", {}) or {}
+            if (
+                ev_metadata.get("content_provenance") == "metadata-only"
+                or ev_metadata.get("evidence_eligible") is False
+                or ev_metadata.get("quote_validated") is False
+            ):
+                continue
             # Direct match if evidence is for this exact claim
             if ev.claim.strip().lower() == claim.strip().lower():
                 scored_evidences.append((ev, 1.0))
@@ -240,7 +247,14 @@ class FactCheckerAgent:
         status = "verified" if is_supported else ("disputed" if contradictions else "unverified")
 
         # Optional LLM-assisted verification refinement
+        llm_attempted = False
+        llm_success = False
+        llm_metadata = {
+            "provider": "none",
+            "model": "",
+        }
         if use_llm:
+            llm_attempted = True
             try:
                 evidence_text = "\n".join([f"- {ev.claim} (Quote: {ev.quote})" for ev in supporting[:5]])
                 sources_text = "\n".join([s for s in unique_sources[:5]])
@@ -254,17 +268,32 @@ class FactCheckerAgent:
                 )
                 parsed = self._parse_llm_fact_check(llm_response)
                 if parsed:
+                    llm_success = True
+                    # The model may refine a deterministic check, but it
+                    # cannot turn an unsupported claim into a verified one.
                     if "supported" in parsed:
-                        is_supported = bool(parsed["supported"])
+                        is_supported = is_supported and bool(parsed["supported"])
                     if "confidence" in parsed and isinstance(parsed["confidence"], (int, float)):
-                        confidence = round(max(0.0, min(1.0, float(parsed["confidence"]))), 2)
-                    if "reasoning" in parsed and parsed["reasoning"]:
+                        llm_confidence = max(0.0, min(1.0, float(parsed["confidence"])))
+                        confidence = round(min(confidence, llm_confidence), 2)
+                    if (
+                        parsed.get("reasoning")
+                        and is_supported
+                        and self._reasoning_is_traceable(parsed["reasoning"], supporting, sources)
+                    ):
                         reasoning = parsed["reasoning"]
-                    if "contradictions" in parsed and isinstance(parsed["contradictions"], list):
-                        contradictions.extend(parsed["contradictions"])
-                        contradictions = list(dict.fromkeys(contradictions))
+                    # Do not append arbitrary model-generated contradictions
+                    # or source identifiers.  Those fields are derived from
+                    # the local evidence/source pool below.
             except Exception as e:
                 logger.warning(f"LLM fact checking exception: {e}")
+
+        status = "verified" if is_supported else ("disputed" if contradictions else "unverified")
+        provider = getattr(self.llm, "provider", None)
+        llm_metadata = {
+            "provider": str(getattr(provider, "provider_type", "unknown")),
+            "model": str(getattr(provider, "model", "") or ""),
+        }
 
         return FactCheckResult(
             claim=claim,
@@ -277,7 +306,36 @@ class FactCheckerAgent:
             verification_status=status,
             confidence_level=assessment.level,
             confidence_factors=assessment.factors,
+            metadata={
+                "llm_attempted": llm_attempted,
+                "llm_success": llm_success,
+                "llm_provider": llm_metadata["provider"] if llm_attempted else "none",
+                "llm_model": llm_metadata["model"] if llm_attempted else "",
+                "evidence_source_count": source_comp["distinct_source_count"],
+            },
         )
+
+    @staticmethod
+    def _reasoning_is_traceable(
+        reasoning: str,
+        supporting: List[Evidence],
+        sources: Optional[List[Source]],
+    ) -> bool:
+        """Accept LLM reasoning only when it names supplied evidence/sources."""
+        text = str(reasoning or "").lower()
+        if not text:
+            return False
+        trace_text = " ".join(
+            [
+                *(ev.claim or "" for ev in supporting),
+                *(ev.source_title or "" for ev in supporting),
+                *(s.title or "" for s in (sources or [])),
+                *(s.domain or "" for s in (sources or [])),
+            ]
+        ).lower()
+        trace_tokens = {token for token in re.findall(r"[a-z0-9]+", trace_text) if len(token) > 3}
+        reasoning_tokens = {token for token in re.findall(r"[a-z0-9]+", text) if len(token) > 3}
+        return bool(trace_tokens.intersection(reasoning_tokens))
 
     async def fact_check_batch(
         self,

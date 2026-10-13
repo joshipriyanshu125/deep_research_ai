@@ -66,8 +66,11 @@ class ResearchStateMachine {
      */
     canTransition(fromState, toState) {
         if (!fromState || !toState) return false;
-        // Any state can transition to FAILED or CANCELLED
-        if (toState === STATES.FAILED || toState === STATES.CANCELLED) return true;
+        // Any non-terminal state can transition to CANCELLED. A completed
+        // job is immutable with respect to Stop.
+        if (toState === STATES.CANCELLED) return fromState !== STATES.COMPLETED;
+        // Any state can transition to FAILED
+        if (toState === STATES.FAILED) return true;
 
         const allowed = this.TRANSITIONS[fromState];
         if (!allowed) return true; // Flexible for aliases
@@ -83,8 +86,9 @@ class ResearchStateMachine {
     async transition(researchOrId, targetState, metadata = {}) {
         if (mongoose.connection.readyState !== 1) return null;
 
-        const id = typeof researchOrId === "string" ? researchOrId : researchOrId._id;
-        const research = typeof researchOrId === "object" && researchOrId._id
+        const isDocument = typeof researchOrId === "object" && researchOrId?._id;
+        const id = isDocument ? researchOrId._id : researchOrId;
+        const research = isDocument
             ? researchOrId
             : await Research.findById(id);
 
@@ -93,6 +97,11 @@ class ResearchStateMachine {
         }
 
         const currentState = research.status;
+
+        if ([STATES.COMPLETED, STATES.CANCELLED].includes(currentState) &&
+            [STATES.CANCELLED, STATES.FAILED].includes(targetState)) {
+            return null;
+        }
 
         // Verify transition validity
         if (!this.canTransition(currentState, targetState)) {
@@ -104,35 +113,48 @@ class ResearchStateMachine {
         // Prepare updates
         const progress = metadata.progress !== undefined
             ? metadata.progress
-            : (this.STATE_PROGRESS[targetState] || research.progress);
+            : (this.STATE_PROGRESS[targetState] ?? research.progress);
 
         const currentStep = metadata.step || metadata.message || `State: ${targetState.toUpperCase()}`;
 
-        research.status = targetState;
-        research.progress = progress;
-        research.currentStep = currentStep;
-
+        const set = {
+            status: targetState,
+            progress,
+            currentStep
+        };
         if (targetState === STATES.COMPLETED) {
-            research.completedAt = new Date();
+            set.completedAt = new Date();
         } else if (targetState === STATES.PLANNING && !research.startedAt) {
-            research.startedAt = new Date();
+            set.startedAt = new Date();
         }
 
         if (metadata.error) {
-            research.error = metadata.error;
-            research.failedStage = currentState;
+            set.error = metadata.error;
+            set.failedStage = currentState;
         }
 
-        // Push state log
-        research.logs.push({
-            timestamp: new Date(),
-            state: targetState,
-            stage: targetState,
-            message: metadata.message || `Transitioned from ${currentState} to ${targetState}`
-        });
+        // The status predicate makes a transition a compare-and-set. A worker
+        // holding an older document can therefore not save over a concurrent
+        // cancellation or completion.
+        const updated = await Research.findOneAndUpdate(
+            { _id: id, status: currentState },
+            {
+                $set: set,
+                $push: {
+                    logs: {
+                        timestamp: new Date(),
+                        state: targetState,
+                        stage: targetState,
+                        message: metadata.message || `Transitioned from ${currentState} to ${targetState}`
+                    }
+                }
+            },
+            { returnDocument: "after", runValidators: true }
+        );
 
-        await research.save();
-        return research;
+        // A missing update means the state changed after it was read (usually
+        // because Stop won the race). Do not resurrect the stale state.
+        return updated || null;
     }
 
     /**
@@ -146,8 +168,11 @@ class ResearchStateMachine {
 
         const errorMessage = error instanceof Error ? error.message : String(error);
 
-        return await Research.findByIdAndUpdate(
-            researchId,
+        const updated = await Research.findOneAndUpdate(
+            {
+                _id: researchId,
+                status: { $nin: [STATES.COMPLETED, STATES.CANCELLED] }
+            },
             {
                 $set: {
                     status: STATES.FAILED,
@@ -166,6 +191,9 @@ class ResearchStateMachine {
             },
             { returnDocument: "after" }
         );
+
+        // Preserve an already-terminal result if a late stage error arrives.
+        return updated || await Research.findById(researchId);
     }
 
     /**
@@ -184,24 +212,39 @@ class ResearchStateMachine {
             throw new Error(`Maximum retries (${research.maxRetries}) exceeded for research ${researchId}`);
         }
 
-        research.retryCount += 1;
-        research.status = STATES.RETRY;
-        research.error = null;
-        research.currentStep = `Retrying research (Attempt ${research.retryCount}/${research.maxRetries})`;
-        research.logs.push({
-            timestamp: new Date(),
-            state: STATES.RETRY,
-            stage: "retry",
-            message: `Initiating retry attempt ${research.retryCount} of ${research.maxRetries}. Previous failure at: ${research.failedStage || "unknown"}`
-        });
-        await research.save();
+        const nextRetryCount = research.retryCount + 1;
+        const retryUpdate = await Research.findOneAndUpdate(
+            { _id: researchId, status: research.status },
+            {
+                $set: {
+                    status: STATES.RETRY,
+                    error: null,
+                    currentStep: `Retrying research (Attempt ${nextRetryCount}/${research.maxRetries})`
+                },
+                $inc: { retryCount: 1 },
+                $push: {
+                    logs: {
+                        timestamp: new Date(),
+                        state: STATES.RETRY,
+                        stage: "retry",
+                        message: `Initiating retry attempt ${nextRetryCount} of ${research.maxRetries}. Previous failure at: ${research.failedStage || "unknown"}`
+                    }
+                }
+            },
+            { returnDocument: "after" }
+        );
+        if (!retryUpdate) {
+            const latest = await Research.findById(researchId);
+            if (!latest) throw new Error("Research not found");
+            return latest;
+        }
 
         // Transition back to QUEUED for execution
-        await this.transition(research, STATES.QUEUED, {
-            message: `Re-queued after retry attempt ${research.retryCount}`
+        const queued = await this.transition(researchId, STATES.QUEUED, {
+            message: `Re-queued after retry attempt ${nextRetryCount}`
         });
 
-        return research;
+        return queued || await Research.findById(researchId);
     }
 }
 

@@ -1,4 +1,4 @@
-const { askGroundedGemini } = require("./geminiService");
+const { askGroundedGemini, getGeminiModel } = require("./geminiService");
 
 function citationsFromSources(sources, evidence, factChecks = []) {
     const seen = new Set();
@@ -43,6 +43,8 @@ function fallbackReport(query, analysis, factChecks, citations, verificationSumm
     }).join("\n");
     const verificationLine = verificationSummary.independentVerification
         ? `Independent web verification was attempted for ${verificationSummary.attemptedClaims || 0} claims and verified ${verificationSummary.verifiedClaims || 0}.`
+        : (verificationSummary.verificationAttempted || (verificationSummary.attemptedClaims || 0) > 0)
+            ? `Independent web verification was attempted for ${verificationSummary.attemptedClaims || 0} claims, but no usable independent corroboration was recorded.`
         : "Independent web verification was not available for this run; claims remain provisional.";
     const methodology = verificationSummary.liveWebResearch
         ? 'Search providers were queried and source URLs were collected, deduplicated, and fetched when accessible.'
@@ -53,10 +55,15 @@ function fallbackReport(query, analysis, factChecks, citations, verificationSumm
 async function generateReport({ query, analysis, evidence, factChecks, sources, verificationSummary = {}, signal }) {
     const citations = citationsFromSources(sources, evidence, factChecks);
     let content = "";
+    let reportWriter = "Deterministic Grounded Generator";
+    let reportEngine = "deterministic";
     if (process.env.GEMINI_API_KEY && process.env.NODE_ENV !== "test") {
         try {
             content = await askGroundedGemini({ query, analysis, evidence, factChecks, citations, verificationSummary, signal });
+            reportWriter = `Gemini (${getGeminiModel()})`;
+            reportEngine = "gemini";
         } catch (error) {
+            if (signal?.aborted || error.name === "AbortError" || error.code === "ABORT_ERR") throw error;
             content = "";
         }
     }
@@ -70,6 +77,8 @@ async function generateReport({ query, analysis, evidence, factChecks, sources, 
         content,
         citations,
         verificationSummary,
+        reportWriter,
+        reportEngine,
         sections: [
             { heading: "Executive Summary", body: analysis.summary },
             { heading: "Key Findings", body: analysis.findings.map((finding) => finding.insight).join("\n") },

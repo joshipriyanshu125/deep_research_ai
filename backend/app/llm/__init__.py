@@ -1,6 +1,13 @@
-from app.llm.provider import BaseLLMProvider, MockLLMProvider
+from app.llm.provider import (
+    BaseLLMProvider,
+    LLMProviderError,
+    LLMUnavailableError,
+    MockLLMProvider,
+    UnavailableLLMProvider,
+)
 from app.llm.openai import OpenAILLMProvider, get_llm_provider
 from app.llm.openrouter import OpenRouterLLMProvider, get_openrouter_provider
+from app.llm.gemini import GeminiLLMProvider
 from app.llm.service import LLMService, get_llm_service, llm_service
 from app.llm.embeddings import EmbeddingService, embedding_service
 from app.llm.prompts import (
@@ -33,9 +40,13 @@ from app.llm.prompts import (
 
 __all__ = [
     "BaseLLMProvider",
+    "LLMProviderError",
+    "LLMUnavailableError",
     "MockLLMProvider",
+    "UnavailableLLMProvider",
     "OpenAILLMProvider",
     "OpenRouterLLMProvider",
+    "GeminiLLMProvider",
     "get_openrouter_provider",
     "get_llm_provider",
     "LLMService",

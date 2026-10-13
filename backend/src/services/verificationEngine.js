@@ -71,7 +71,7 @@ function verificationTaskId(claim) {
  */
 async function verifyEvidence(evidence, originalSources, query, signal, options = {}) {
     if (process.env.NODE_ENV === 'test' || process.env.RESEARCH_LIVE_SEARCH === 'false') {
-        return { checks: [], sources: [], attempted: false };
+        return { checks: [], sources: [], attempted: false, attemptedCalls: 0, successfulCalls: 0 };
     }
 
     const maxClaims = Math.max(1, Math.min(12, Number(options.maxClaims) || 8));
@@ -167,7 +167,11 @@ async function verifyEvidence(evidence, originalSources, query, signal, options 
         checks: results.filter(Boolean),
         sources: [...sourceMap.values()],
         attempted: candidates.length > 0,
-        attemptedClaims: candidates.length
+        attemptedClaims: candidates.length,
+        attemptedCalls: candidates.length,
+        // An unverified/single-source result is still a useful outcome, but a
+        // result carrying an error did not complete the independent call.
+        successfulCalls: results.filter((result) => result && !result.error).length
     };
 }
 

@@ -28,6 +28,8 @@ from app.database.models.source import Source, SourceType, ProcessedSearchResult
 from app.utils.logger import logger
 
 
+EXTRACTION_TIMEOUT_SECONDS = 25.0
+
 class DeepWebResearchAgent:
     """
     Multi-query web research agent that expands research questions into
@@ -58,6 +60,8 @@ class DeepWebResearchAgent:
             top_k: Max number of top-ranked pages to open and extract
             category: Optional template category ("web" | "academic" | "market")
         """
+        max_queries = max(1, min(int(max_queries or 1), 12))
+        top_k = max(1, min(int(top_k or 1), 20))
         if category is None:
             category = "market" if is_market else "web"
 
@@ -109,6 +113,9 @@ class DeepWebResearchAgent:
 
         # 4. Rank results by relevance to original research question
         ranked_results = result_ranker.rank(question=query, results=deduped_results)
+        # A source with no query overlap should not enter extraction merely
+        # because its domain has a high authority bonus.
+        ranked_results = [item for item in ranked_results if item.get("relevance_score", 0.0) > 0.0]
 
         # 5. Select top-K pages to scrape
         top_candidates = ranked_results[:top_k]
@@ -144,11 +151,28 @@ class DeepWebResearchAgent:
             if ext_data.get("date") and not processed_item.publication_date:
                 processed_item.publication_date = ext_data["date"]
 
-            text_content = ext_data.get("text") or processed_item.snippet or ""
+            fetched_text = ext_data.get("text") or ""
             from app.scraping.text_normalizer import text_normalizer
+            fetched_is_valid = (
+                bool(fetched_text.strip())
+                and not text_normalizer.is_corrupted_text(fetched_text)
+                and ext_data.get("extraction_success", True) is not False
+            )
+            text_content = fetched_text if fetched_is_valid else (processed_item.snippet or "")
             if not text_content or text_normalizer.is_corrupted_text(text_content):
                 text_content = processed_item.snippet or ""
             author = ext_data.get("author")
+
+            search_provider = (
+                candidate.get("search_provider")
+                or candidate.get("provider")
+                or candidate.get("engine")
+                or processed_item.metadata.get("search_provider")
+                or "unknown"
+            )
+            content_provenance = "fetched" if fetched_is_valid else (
+                "snippet" if processed_item.snippet else "metadata-only"
+            )
 
             source = search_result_processor.to_source(
                 processed=processed_item,
@@ -160,6 +184,12 @@ class DeepWebResearchAgent:
                 additional_metadata={
                     "rank": idx + 1,
                     "word_count": len(text_content.split()),
+                    "search_provider": str(search_provider),
+                    "retrieval_method": "live_search",
+                    "content_provenance": content_provenance,
+                    "fetched": fetched_is_valid,
+                    "snippet_used": not fetched_is_valid and bool(processed_item.snippet),
+                    "evidence_eligible": bool(text_content.strip()),
                 },
             )
             sources.append(source)
@@ -178,7 +208,13 @@ class DeepWebResearchAgent:
     async def _search_single_query(self, query: str, is_market: bool) -> List[Dict[str, Any]]:
         async with self._semaphore:
             if is_market:
-                return await news_search_engine.search(query, max_results=4)
+                news_results = await news_search_engine.search(query, max_results=4)
+                if news_results:
+                    return news_results
+                # Market research still needs traceable sources when a news
+                # provider is temporarily unavailable. Fall back to the
+                # general live web engine, never to fabricated records.
+                return await web_search_engine.search(query, max_results=4)
             else:
                 return await web_search_engine.search(query, max_results=4)
 
@@ -188,15 +224,28 @@ class DeepWebResearchAgent:
             return {}
         async with self._semaphore:
             try:
-                extracted = await content_extractor.extract_from_url(url)
+                extracted = await asyncio.wait_for(
+                    content_extractor.extract_from_url(url),
+                    timeout=EXTRACTION_TIMEOUT_SECONDS,
+                )
                 from app.scraping.text_normalizer import text_normalizer
                 text = extracted.get("text", "")
                 if not text or text_normalizer.is_corrupted_text(text):
                     extracted["text"] = item.get("snippet", "")
+                    extracted["extraction_success"] = False
+                    extracted["content_provenance"] = "snippet"
+                else:
+                    extracted["extraction_success"] = True
+                    extracted["content_provenance"] = "fetched"
                 return extracted
             except Exception as e:
                 logger.warning(f"Extraction error for {url}: {e}")
-                return {"text": item.get("snippet", ""), "title": item.get("title", "")}
+                return {
+                    "text": item.get("snippet", ""),
+                    "title": item.get("title", ""),
+                    "extraction_success": False,
+                    "content_provenance": "snippet",
+                }
 
 
 # Backward-compatible alias

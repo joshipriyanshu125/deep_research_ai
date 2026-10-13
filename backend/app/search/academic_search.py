@@ -28,12 +28,15 @@ from typing import List, Dict, Any, Optional
 from app.utils.logger import logger
 
 
+ACADEMIC_PROVIDER_TIMEOUT_SECONDS = 25.0
+
+
 # ---------------------------------------------------------------------------
 # 1. arXiv Search (Open-access preprints — CS, Physics, Math, etc.)
 # ---------------------------------------------------------------------------
 
 class ArXivSearchEngine:
-    BASE_URL = "http://export.arxiv.org/api/query"
+    BASE_URL = "https://export.arxiv.org/api/query"
 
     async def search(self, query: str, max_results: int = 5) -> List[Dict[str, Any]]:
         """Search arXiv using the Atom feed API."""
@@ -101,6 +104,7 @@ class ArXivSearchEngine:
                             "year": year,
                             "doi": doi,
                             "source": "arxiv",
+                            "search_provider": "arxiv",
                             "source_type": "academic",
                         })
         except Exception as e:
@@ -159,6 +163,7 @@ class SemanticScholarSearchEngine:
                             "venue": paper.get("venue", ""),
                             "citation_count": paper.get("citationCount", 0),
                             "source": "semantic_scholar",
+                            "search_provider": "semantic_scholar",
                             "source_type": "academic",
                         })
         except Exception as e:
@@ -228,6 +233,7 @@ class CrossrefSearchEngine:
                             "doi": doi,
                             "venue": journal,
                             "source": "crossref",
+                            "search_provider": "crossref",
                             "source_type": "academic",
                         })
         except Exception as e:
@@ -338,6 +344,7 @@ class PubMedSearchEngine:
                             "year": year,
                             "doi": None,
                             "source": "pubmed",
+                            "search_provider": "pubmed",
                             "source_type": "academic",
                         })
                     except Exception as parse_err:
@@ -378,6 +385,10 @@ class AcademicSearchEngine:
         if sources is None:
             sources = ["arxiv", "semantic_scholar", "crossref", "pubmed"]
 
+        sources = [str(name).strip().lower() for name in sources if str(name).strip()]
+        if not sources:
+            return []
+
         per_source = max(2, max_results // len(sources))
 
         # Build coroutine list based on requested sources
@@ -391,8 +402,15 @@ class AcademicSearchEngine:
         if "pubmed" in sources:
             coros.append(self.pubmed.search(query, per_source))
 
-        # Execute all searches in parallel
-        gathered = await asyncio.gather(*coros, return_exceptions=True)
+        # Execute all searches in parallel, but do not let a blocking or
+        # stalled academic provider hold the whole research run indefinitely.
+        async def _bounded(coro):
+            try:
+                return await asyncio.wait_for(coro, timeout=ACADEMIC_PROVIDER_TIMEOUT_SECONDS)
+            except Exception as exc:
+                return exc
+
+        gathered = await asyncio.gather(*[_bounded(coro) for coro in coros])
 
         # Collect and deduplicate
         all_results: List[Dict[str, Any]] = []

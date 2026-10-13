@@ -9,16 +9,48 @@ Architecture:
     Agent  →  LLMService  →  ModelRouter / BaseLLMProvider (OpenAI / Mock / future models)
 """
 
+import asyncio
+import copy
 import json
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any, Dict, List, Optional, Type, TypeVar, Union, Tuple
 
 from app.config.settings import settings
-from app.llm.provider import BaseLLMProvider, MockLLMProvider
+from app.llm.provider import BaseLLMProvider, LLMProviderError
 from app.llm.router import model_router, ModelRouter, RoutingDecision, RoutingStrategy, TaskComplexity
 from app.utils.logger import logger
 
 T = TypeVar("T")
+LLM_CALL_TIMEOUT_SECONDS = 35.0
+_usage_capture: ContextVar[Optional[List[Dict[str, Any]]]] = ContextVar("llm_usage_capture", default=None)
+_last_call: ContextVar[Optional[Dict[str, Any]]] = ContextVar("last_llm_call", default=None)
+_operation: ContextVar[str] = ContextVar("llm_operation", default="generation")
+
+
+@contextmanager
+def capture_llm_usage():
+    """Collect actual call receipts for this run, including inherited child tasks.
+
+    The list is scoped with ContextVar rather than stored on singleton agents,
+    so simultaneous research jobs cannot borrow one another's Gemini usage.
+    Receipts contain identifiers/status only, never prompts, responses or keys.
+    """
+    receipts: List[Dict[str, Any]] = []
+    token = _usage_capture.set(receipts)
+    try:
+        yield receipts
+    finally:
+        _usage_capture.reset(token)
+
+
+def llm_provenance(service: Any) -> Dict[str, Any]:
+    """Snapshot the current task's last call, without mistaking a key for usage."""
+    if isinstance(service, LLMService):
+        return dict(service.last_call or {**service.provider_metadata, "llm_used": False, "success": False})
+    # Explicitly supplied test doubles have no verified provider identity.
+    return {"provider": "unknown", "model": "", "llm_used": False, "success": False}
 
 
 class LLMService:
@@ -27,14 +59,15 @@ class LLMService:
     def __init__(
         self,
         provider: Optional[BaseLLMProvider] = None,
-        router: Optional[ModelRouter] = None
+        router: Optional[ModelRouter] = None,
+        provider_type: Optional[str] = None,
     ):
         if provider is not None:
             self._provider = provider
         else:
             # Lazy import to avoid circular dependency
             from app.llm.openai import get_llm_provider
-            self._provider = get_llm_provider()
+            self._provider = get_llm_provider(provider_type=provider_type)
 
         self._router = router or model_router
 
@@ -48,6 +81,53 @@ class LLMService:
         return self._provider
 
     @property
+    def provider_metadata(self) -> Dict[str, str]:
+        """Return stable provider/model identifiers for run provenance."""
+        provider = self._provider
+        provider_type = getattr(provider, "provider_type", provider.__class__.__name__.lower())
+        model = getattr(provider, "model", "") or ""
+        return {"provider": str(provider_type), "model": str(model)}
+
+    @property
+    def last_call(self) -> Optional[Dict[str, Any]]:
+        value = _last_call.get()
+        return dict(value) if value else None
+
+    async def _call_provider(self, method: str, prompt: str, *, model=None, **kwargs) -> str:
+        provider = self._provider
+        if model and hasattr(provider, "model"):
+            provider = copy.copy(provider)
+            provider.model = model
+        provider_type = getattr(provider, "provider_type", "unknown")
+        receipt = {
+            "operation": _operation.get(),
+            "provider": provider_type,
+            "model": getattr(provider, "model", "") or "",
+            "success": False,
+            "llm_used": False,
+        }
+        started = time.perf_counter()
+        try:
+            result = await asyncio.wait_for(
+                getattr(provider, method)(prompt, **kwargs),
+                timeout=LLM_CALL_TIMEOUT_SECONDS,
+            )
+            if not isinstance(result, str) or not result.strip():
+                raise LLMProviderError("LLM provider returned an empty response")
+            receipt["success"] = True
+            receipt["llm_used"] = provider_type not in {"mock", "unavailable", "unknown"}
+            return result
+        except BaseException as exc:
+            receipt["error_type"] = type(exc).__name__
+            raise
+        finally:
+            receipt["duration_ms"] = round((time.perf_counter() - started) * 1000, 2)
+            _last_call.set(receipt)
+            capture = _usage_capture.get()
+            if capture is not None:
+                capture.append(dict(receipt))
+
+    @property
     def router(self) -> ModelRouter:
         """Expose the model router."""
         return self._router
@@ -59,17 +139,20 @@ class LLMService:
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: int = 4000,
+        model: Optional[str] = None,
     ) -> str:
         """General-purpose text generation — the lowest-level public method."""
         try:
-            return await self._provider.generate_text(
+            return await self._call_provider(
+                "generate_text",
                 prompt,
                 system_prompt=system_prompt,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                model=model,
             )
         except Exception as e:
-            logger.error(f"LLMService.generate failed: {e}")
+            logger.warning(f"LLMService.generate failed: {type(e).__name__}")
             raise
 
     async def generate_json(
@@ -77,15 +160,18 @@ class LLMService:
         prompt: str,
         *,
         system_prompt: Optional[str] = None,
+        model: Optional[str] = None,
     ) -> str:
         """Generate a response constrained to valid JSON."""
         try:
-            return await self._provider.generate_structured_json(
+            return await self._call_provider(
+                "generate_structured_json",
                 prompt,
                 system_prompt=system_prompt,
+                model=model,
             )
         except Exception as e:
-            logger.error(f"LLMService.generate_json failed: {e}")
+            logger.warning(f"LLMService.generate_json failed: {type(e).__name__}")
             raise
 
     # ------------------------------------------------------------------ #
@@ -132,19 +218,14 @@ class LLMService:
             return result, decision
         except Exception as e:
             self._router.record_failure(decision.selected_model, error=str(e))
-            logger.warning(f"Primary model {decision.selected_model} failed. Falling back to chain {decision.fallback_chain}")
-            # Try fallback chain
-            for fb_model in decision.fallback_chain:
-                try:
-                    logger.info(f"Retrying with fallback model: {fb_model}")
-                    result = await MockLLMProvider().generate_text(
-                        prompt, system_prompt=system_prompt, temperature=temperature, max_tokens=max_tokens
-                    )
-                    self._router.record_success(fb_model)
-                    return result, decision
-                except Exception as fb_err:
-                    self._router.record_failure(fb_model, error=str(fb_err))
-                    continue
+            # A routing decision names model profiles, but this service owns a
+            # single configured provider instance.  Calling a canned mock for
+            # a failed real request would make the report look verified when
+            # it was never generated.  Surface the failure instead; agents
+            # have deterministic grounded fallbacks.
+            logger.warning(
+                f"Primary model {decision.selected_model} failed; no synthetic fallback will be used."
+            )
             raise
 
     async def generate_json_routed(
@@ -173,14 +254,9 @@ class LLMService:
             return result, decision
         except Exception as e:
             self._router.record_failure(decision.selected_model, error=str(e))
-            for fb_model in decision.fallback_chain:
-                try:
-                    result = await MockLLMProvider().generate_structured_json(prompt, system_prompt=system_prompt)
-                    self._router.record_success(fb_model)
-                    return result, decision
-                except Exception as fb_err:
-                    self._router.record_failure(fb_model, error=str(fb_err))
-                    continue
+            logger.warning(
+                f"Primary model {decision.selected_model} failed; no synthetic JSON fallback will be used."
+            )
             raise
 
     # ------------------------------------------------------------------ #
@@ -228,22 +304,27 @@ class LLMService:
         system_prompt = config.system_prompt
         effective_temp = temperature if temperature is not None else config.temperature
         effective_max_tokens = max_tokens if max_tokens is not None else config.max_tokens
-        effective_model = model or config.model or settings.DEFAULT_MODEL
+        model_override = model or config.model
+        effective_model = model_override or self.provider_metadata["model"]
 
         logger.debug(
             f"[LLM Operation] Prompt: '{config.name}' (v{config.version}) | "
             f"Model: {effective_model} | Temp: {effective_temp} | MaxTokens: {effective_max_tokens}"
         )
 
-        if is_json:
-            return await self.generate_json(user_prompt, system_prompt=system_prompt)
-        else:
+        operation_token = _operation.set(config.name)
+        try:
+            if is_json:
+                return await self.generate_json(user_prompt, system_prompt=system_prompt, model=model_override)
             return await self.generate(
-                user_prompt,
-                system_prompt=system_prompt,
-                temperature=effective_temp,
-                max_tokens=effective_max_tokens,
-            )
+                    user_prompt,
+                    system_prompt=system_prompt,
+                    temperature=effective_temp,
+                    max_tokens=effective_max_tokens,
+                    model=model_override,
+                )
+        finally:
+            _operation.reset(operation_token)
 
     async def summarize(
         self,
@@ -365,10 +446,11 @@ class LLMService:
 
 def get_llm_service(
     provider: Optional[BaseLLMProvider] = None,
-    router: Optional[ModelRouter] = None
+    router: Optional[ModelRouter] = None,
+    provider_type: Optional[str] = None,
 ) -> LLMService:
     """Factory that returns an LLMService, optionally with a custom provider or router."""
-    return LLMService(provider=provider, router=router)
+    return LLMService(provider=provider, router=router, provider_type=provider_type)
 
 
 # Default singleton — import this everywhere:

@@ -93,23 +93,62 @@ function isRetryableModelError(err) {
         message.includes("service unavailable");
 }
 
-async function generateContentWithTimeout(client, request) {
+function abortError(message) {
+    const error = new Error(message);
+    error.name = "AbortError";
+    error.code = "ABORT_ERR";
+    return error;
+}
+
+function throwIfAborted(signal, message) {
+    if (signal?.aborted) throw abortError(message);
+}
+
+async function generateContentWithTimeout(client, request, signal) {
     let timeoutId;
+    let onAbort;
+    let onSignalAbort;
+    const requestController = new AbortController();
+    onAbort = () => requestController.abort();
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener("abort", onAbort, { once: true });
+
+    const requestWithSignal = {
+        ...request,
+        config: {
+            ...(request.config || {}),
+            abortSignal: requestController.signal
+        }
+    };
 
     try {
-        return await Promise.race([
-            client.models.generateContent(request),
+        throwIfAborted(signal, "Gemini request cancelled");
+        const abortPromise = signal
+            ? new Promise((_, reject) => {
+                onSignalAbort = () => reject(abortError("Gemini request cancelled"));
+                signal.addEventListener("abort", onSignalAbort, { once: true });
+            })
+            : null;
+        const response = await Promise.race([
+            client.models.generateContent(requestWithSignal),
             new Promise((_, reject) => {
                 timeoutId = setTimeout(() => {
+                    requestController.abort();
                     const err = new Error("Gemini API request timed out. Please try again.");
                     err.status = 504;
                     err.code = "GEMINI_TIMEOUT";
                     reject(err);
                 }, REQUEST_TIMEOUT_MS);
-            })
+            }),
+            ...(abortPromise ? [abortPromise] : [])
         ]);
+        throwIfAborted(signal, "Gemini request cancelled");
+        return response;
     } finally {
         clearTimeout(timeoutId);
+        signal?.removeEventListener("abort", onAbort);
+        signal?.removeEventListener("abort", onSignalAbort);
+        requestController.abort();
     }
 }
 
@@ -121,9 +160,11 @@ async function generateContentWithTimeout(client, request) {
  * Ask Gemini a single question and return the text answer.
  *
  * @param {string} question  Validated, trimmed question string.
+ * @param {{ signal?: AbortSignal }} options
  * @returns {Promise<{ answer: string, model: string }>}
  */
-async function askGemini(question) {
+async function askGemini(question, { signal } = {}) {
+    throwIfAborted(signal, "Gemini request cancelled");
     const client = getClient();
     const candidateModels = getGeminiModelCandidates();
 
@@ -136,7 +177,8 @@ async function askGemini(question) {
             const response = await generateContentWithTimeout(client, {
                 model: modelName,
                 contents: prompt,
-            });
+            }, signal);
+            throwIfAborted(signal, "Gemini request cancelled");
 
             const answer = response?.text;
 
@@ -147,6 +189,7 @@ async function askGemini(question) {
                 };
             }
         } catch (err) {
+            if (signal?.aborted || err.name === "AbortError" || err.code === "ABORT_ERR") throw err;
             lastError = err;
 
             // An old/deprecated model commonly returns 404. Treat it like an
@@ -177,6 +220,7 @@ async function askGemini(question) {
  * grounded writer rather than as an unsourced search engine.
  */
 async function askGroundedGemini({ query, analysis, evidence, factChecks, citations, verificationSummary, signal }) {
+    throwIfAborted(signal, "Research report generation cancelled");
     const client = getClient();
     const modelName = getGeminiModel();
     const evidenceText = (evidence || []).slice(0, 40).map((item) =>
@@ -209,23 +253,15 @@ ${JSON.stringify(factChecks || [], null, 2)}
 
 Citation Index:
 ${citationText || "No citations available."}`;
-    const controller = new AbortController();
-    const onAbort = () => controller.abort();
-    signal?.addEventListener("abort", onAbort, { once: true });
-    try {
-        const response = await client.models.generateContent({
-            model: modelName,
-            contents: prompt,
-            config: { temperature: 0.2 }
-        });
-        if (signal?.aborted) throw new Error("Research report generation cancelled");
-        const text = response?.text;
-        if (!text || !text.trim()) throw new Error("Gemini returned an empty report");
-        return text.trim();
-    } finally {
-        signal?.removeEventListener?.("abort", onAbort);
-        controller.abort();
-    }
+    const response = await client.models.generateContent({
+        model: modelName,
+        contents: prompt,
+        config: { temperature: 0.2, abortSignal: signal }
+    });
+    throwIfAborted(signal, "Research report generation cancelled");
+    const text = response?.text;
+    if (!text || !text.trim()) throw new Error("Gemini returned an empty report");
+    return text.trim();
 }
 
 /**
@@ -233,6 +269,7 @@ ${citationText || "No citations available."}`;
  * Synthesizes key findings, cross-source observations, trends, and executive summary.
  */
 async function geminiAnalyzeEvidence({ query, evidence, sources, signal }) {
+    throwIfAborted(signal, "Gemini analysis cancelled");
     const client = getClient();
     const modelName = getGeminiModel();
 
@@ -286,39 +323,31 @@ Rules:
 - Do not invent facts, companies, or figures not present in the evidence.
 - Produce at least 3-6 distinct findings.`;
 
-    const controller = new AbortController();
-    const onAbort = () => controller.abort();
-    signal?.addEventListener("abort", onAbort, { once: true });
-
-    try {
-        const response = await client.models.generateContent({
-            model: modelName,
-            contents: prompt,
-            config: {
-                temperature: 0.2,
-                responseMimeType: "application/json"
-            }
-        });
-        if (signal?.aborted) throw new Error("Gemini analysis cancelled");
-        const rawText = response?.text;
-        if (!rawText) throw new Error("Gemini returned empty analysis response");
-        const parsed = JSON.parse(rawText);
-        return {
-            findings: Array.isArray(parsed.findings) ? parsed.findings : [],
-            trends: Array.isArray(parsed.trends) ? parsed.trends : [],
-            comparisons: Array.isArray(parsed.comparisons) ? parsed.comparisons : [],
-            summary: parsed.summary || `Synthesized analysis for query: ${query}`,
-            evidenceCount: evidence.length,
-            sourceCount: sources.length,
-            highConfidenceCount: (parsed.findings || []).filter((f) => (f.confidence || 0) >= 0.7).length,
-            engine: "gemini",
-            model: modelName,
-            analyzedAt: new Date()
-        };
-    } finally {
-        signal?.removeEventListener?.("abort", onAbort);
-        controller.abort();
-    }
+    const response = await client.models.generateContent({
+        model: modelName,
+        contents: prompt,
+        config: {
+            temperature: 0.2,
+            responseMimeType: "application/json",
+            abortSignal: signal
+        }
+    });
+    throwIfAborted(signal, "Gemini analysis cancelled");
+    const rawText = response?.text;
+    if (!rawText) throw new Error("Gemini returned empty analysis response");
+    const parsed = JSON.parse(rawText);
+    return {
+        findings: Array.isArray(parsed.findings) ? parsed.findings : [],
+        trends: Array.isArray(parsed.trends) ? parsed.trends : [],
+        comparisons: Array.isArray(parsed.comparisons) ? parsed.comparisons : [],
+        summary: parsed.summary || `Synthesized analysis for query: ${query}`,
+        evidenceCount: evidence.length,
+        sourceCount: sources.length,
+        highConfidenceCount: (parsed.findings || []).filter((f) => (f.confidence || 0) >= 0.7).length,
+        engine: "gemini",
+        model: modelName,
+        analyzedAt: new Date()
+    };
 }
 
 /**
@@ -326,6 +355,7 @@ Rules:
  * Evaluates claims against primary evidence and independent web search results.
  */
 async function geminiFactCheckClaims({ query, claims, evidence, independentSources = [], heuristicChecks = [], signal }) {
+    throwIfAborted(signal, "Gemini fact checking cancelled");
     const client = getClient();
     const modelName = getGeminiModel();
 
@@ -375,28 +405,24 @@ Return a JSON array of objects:
   }
 ]`;
 
-    const controller = new AbortController();
-    const onAbort = () => controller.abort();
-    signal?.addEventListener("abort", onAbort, { once: true });
-
-    try {
-        const response = await client.models.generateContent({
-            model: modelName,
-            contents: prompt,
-            config: {
-                temperature: 0.1,
-                responseMimeType: "application/json"
-            }
-        });
-        if (signal?.aborted) throw new Error("Gemini fact checking cancelled");
-        const rawText = response?.text;
-        if (!rawText) throw new Error("Gemini returned empty fact-checking response");
-        const parsed = JSON.parse(rawText);
-        if (!Array.isArray(parsed) || parsed.length === 0) {
-            throw new Error("Invalid format from Gemini fact-checker");
+    const response = await client.models.generateContent({
+        model: modelName,
+        contents: prompt,
+        config: {
+            temperature: 0.1,
+            responseMimeType: "application/json",
+            abortSignal: signal
         }
+    });
+    throwIfAborted(signal, "Gemini fact checking cancelled");
+    const rawText = response?.text;
+    if (!rawText) throw new Error("Gemini returned empty fact-checking response");
+    const parsed = JSON.parse(rawText);
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+        throw new Error("Invalid format from Gemini fact-checker");
+    }
 
-        return parsed.map((item) => {
+    return parsed.map((item) => {
             const originalClaim = candidateClaims.find((c) => c.id === item.claimId || c.claim === item.claim) || {};
             const heuristic = (heuristicChecks || []).find((h) => h.claimId === item.claimId || h.claim === item.claim);
             const independentUrls = Array.isArray(item.independentSourceUrls) && item.independentSourceUrls.length > 0
@@ -422,10 +448,6 @@ Return a JSON array of objects:
                 verifiedAt: new Date()
             };
         });
-    } finally {
-        signal?.removeEventListener?.("abort", onAbort);
-        controller.abort();
-    }
 }
 
 // ---------------------------------------------------------------------------

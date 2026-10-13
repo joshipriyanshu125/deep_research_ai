@@ -69,6 +69,63 @@ _NOISE_LINE_PATTERNS = re.compile(
 )
 
 
+def _normalise_for_quote_match(text: str) -> str:
+    """Normalize only formatting so a quote must still be source-derived."""
+    value = text_normalizer.sanitize_for_evidence(text or "")
+    value = value.replace("\u2018", "'").replace("\u2019", "'")
+    value = value.replace("\u201c", '"').replace("\u201d", '"')
+    return re.sub(r"\s+", " ", value).strip().casefold()
+
+
+def _quote_occurs_in_source(quote: str, source_text: str) -> bool:
+    """Return true only for a verbatim (whitespace-normalized) source quote."""
+    normalized_quote = _normalise_for_quote_match(quote)
+    normalized_source = _normalise_for_quote_match(source_text)
+    return bool(normalized_quote and normalized_quote in normalized_source)
+
+
+def _claim_is_supported_by_quote(claim: str, quote: str) -> bool:
+    """Reject claims that share only a generic word with a valid quote."""
+    claim_tokens = {
+        token for token in re.findall(r"[a-z0-9]+", claim.lower()) if len(token) > 3
+    }
+    quote_tokens = {
+        token for token in re.findall(r"[a-z0-9]+", quote.lower()) if len(token) > 3
+    }
+    if len(claim_tokens.intersection(quote_tokens)) < 2:
+        return False
+    # Numeric claims must retain their quoted metrics; this catches otherwise
+    # plausible model embellishments such as changing 12% into 99%.
+    claim_metrics = set(_METRIC_PATTERNS.findall(claim))
+    quote_metrics = set(_METRIC_PATTERNS.findall(quote))
+    return not claim_metrics or claim_metrics.issubset(quote_metrics)
+
+
+def _source_is_evidence_eligible(source: Source) -> bool:
+    metadata = getattr(source, "metadata", {}) or {}
+    if metadata.get("content_provenance") == "metadata-only":
+        return False
+    if metadata.get("evidence_eligible") is False:
+        return False
+    return True
+
+
+def _source_provenance(source: Source) -> str:
+    metadata = getattr(source, "metadata", {}) or {}
+    return str(metadata.get("content_provenance") or ("fetched" if source.clean_text else "snippet"))
+
+
+def _llm_provider_receipt(llm: Any, *, success: bool, attempted: bool = True) -> Dict[str, Any]:
+    provider = getattr(llm, "provider", None)
+    provider_name = getattr(provider, "provider_type", provider.__class__.__name__.lower() if provider else "unknown")
+    return {
+        "llm_attempted": attempted,
+        "llm_success": bool(success),
+        "llm_provider": str(provider_name),
+        "llm_model": str(getattr(provider, "model", "") or ""),
+    }
+
+
 # ---------------------------------------------------------------------------
 # 1. Passage Extractor: Source -> Relevant Passages
 # ---------------------------------------------------------------------------
@@ -235,6 +292,10 @@ class HeuristicEvidenceExtractor:
             verification_status="verified",
             source_url=source_url,
             source_title=source_title,
+            metadata={
+                "extraction_method": "heuristic",
+                "quote_validated": True,
+            },
         )
 
     def extract_from_passage(
@@ -300,6 +361,9 @@ class EvidenceExtractor:
         source_id = source.source_id or source.id
         base_conf = getattr(source, "credibility_score", 0.90) or 0.90
 
+        if not _source_is_evidence_eligible(source):
+            return []
+
         # Prioritize clean text, but reject if corrupted
         candidate_text = source.clean_text or source.content or ""
         if text_normalizer.is_corrupted_text(candidate_text):
@@ -333,7 +397,13 @@ class EvidenceExtractor:
                 ev.claim = text_normalizer.sanitize_for_evidence(ev.claim)
                 ev.quote = text_normalizer.sanitize_for_evidence(ev.quote)
                 ev.evidence = ev.quote
-                if text_normalizer.is_corrupted_text(ev.claim) or text_normalizer.is_corrupted_text(ev.quote):
+                ev.metadata["content_provenance"] = _source_provenance(source)
+                ev.metadata["quote_validated"] = _quote_occurs_in_source(ev.quote, text)
+                if (
+                    text_normalizer.is_corrupted_text(ev.claim)
+                    or text_normalizer.is_corrupted_text(ev.quote)
+                    or not ev.metadata["quote_validated"]
+                ):
                     continue
                 norm_claim = ev.claim.strip().lower()
                 if norm_claim not in seen_claims:
@@ -361,7 +431,14 @@ class EvidenceExtractor:
                     ev.claim = text_normalizer.sanitize_for_evidence(ev.claim)
                     ev.quote = text_normalizer.sanitize_for_evidence(ev.quote)
                     ev.evidence = ev.quote
-                    if not text_normalizer.is_corrupted_text(ev.claim) and not text_normalizer.is_corrupted_text(ev.quote):
+                    ev.metadata["content_provenance"] = "snippet"
+                    ev.metadata["extraction_method"] = "heuristic_snippet"
+                    ev.metadata["quote_validated"] = _quote_occurs_in_source(ev.quote, snippet_clean)
+                    if (
+                        not text_normalizer.is_corrupted_text(ev.claim)
+                        and not text_normalizer.is_corrupted_text(ev.quote)
+                        and ev.metadata["quote_validated"]
+                    ):
                         evidence_list.append(ev)
 
         # Baseline fallback to clean sentences if still empty
@@ -386,8 +463,13 @@ class EvidenceExtractor:
                     source_url=source.url,
                     source_title=source.title,
                     verification_status="verified",
+                    metadata={
+                        "extraction_method": "heuristic_sentence",
+                        "quote_validated": _quote_occurs_in_source(s, text),
+                    },
                 )
-                evidence_list.append(ev)
+                if ev.metadata["quote_validated"]:
+                    evidence_list.append(ev)
                 if len(evidence_list) >= 3:
                     break
 
@@ -410,6 +492,9 @@ class EvidenceExtractor:
         base_conf = getattr(source, "credibility_score", 0.90) or 0.90
         sub_topic = source.title or topic or ""
 
+        if not _source_is_evidence_eligible(source):
+            return []
+
         # Prioritize clean text, but reject if corrupted
         candidate_text = source.clean_text or source.content or ""
         if text_normalizer.is_corrupted_text(candidate_text):
@@ -426,6 +511,13 @@ class EvidenceExtractor:
         if not candidate_passages:
             candidate_passages = [text[:1000]]
 
+        llm = None
+        llm_receipt: Dict[str, Any] = {
+            "llm_attempted": False,
+            "llm_success": False,
+            "llm_provider": "none",
+            "llm_model": "",
+        }
         if use_llm:
             try:
                 llm = get_llm_service()
@@ -445,15 +537,31 @@ class EvidenceExtractor:
                 if parsed:
                     llm_evidence: List[Evidence] = []
                     for item in parsed:
-                        raw_claim = item.get("claim", "").strip()
-                        raw_quote = item.get("evidence", "").strip() or item.get("quote", "").strip() or raw_claim
+                        if not isinstance(item, dict):
+                            continue
+                        raw_claim = str(item.get("claim") or "").strip()
+                        # A claim is not evidence by itself.  Requiring an
+                        # explicit quote prevents a model from laundering a
+                        # plausible but invented sentence into the report.
+                        raw_quote = str(item.get("evidence") or item.get("quote") or "").strip()
+                        if not raw_claim or not raw_quote or not _quote_occurs_in_source(raw_quote, text):
+                            continue
                         claim = text_normalizer.sanitize_for_evidence(raw_claim)
                         quote = text_normalizer.sanitize_for_evidence(raw_quote)
 
-                        if not claim or text_normalizer.is_corrupted_text(claim) or text_normalizer.is_corrupted_text(quote):
+                        if (
+                            not claim
+                            or text_normalizer.is_corrupted_text(claim)
+                            or text_normalizer.is_corrupted_text(quote)
+                            or not _quote_occurs_in_source(quote, text)
+                            or not _claim_is_supported_by_quote(claim, quote)
+                        ):
                             continue
 
-                        raw_conf = float(item.get("confidence", 0.90))
+                        try:
+                            raw_conf = float(item.get("confidence", 0.90))
+                        except (TypeError, ValueError):
+                            raw_conf = 0.90
                         calibrated_conf = round(min(1.0, max(0.1, (raw_conf * 0.6) + (base_conf * 0.4))), 4)
 
                         ev = Evidence(
@@ -462,7 +570,7 @@ class EvidenceExtractor:
                             claim=claim,
                             quote=quote,
                             evidence=quote,
-                            passage=combined_passages[:500],
+                            passage=combined_passages,
                             confidence=calibrated_conf,
                             sub_topic=sub_topic,
                             supporting_entities=item.get("supporting_entities", []),
@@ -471,16 +579,38 @@ class EvidenceExtractor:
                             verification_status="verified",
                             source_url=source.url,
                             source_title=source.title,
+                            metadata={
+                                "extraction_method": "llm",
+                                "content_provenance": _source_provenance(source),
+                                "quote_validated": True,
+                                **_llm_provider_receipt(llm, success=True),
+                            },
                         )
                         llm_evidence.append(ev)
 
                     if llm_evidence:
+                        llm_receipt = _llm_provider_receipt(llm, success=True)
                         return llm_evidence[:max_evidence]
 
             except Exception as e:
                 logger.warning(f"LLM evidence extraction fallback to heuristics: {e}")
 
-        return self.extract_evidence(source, research_id=research_id, topic=topic, max_evidence=max_evidence)
+        if llm is not None:
+            last_call = getattr(llm, "last_call", None) or {}
+            llm_receipt = {
+                **_llm_provider_receipt(llm, success=False),
+                "llm_attempted": True,
+                "llm_success": bool(last_call.get("success", False)) and False,
+            }
+        fallback_evidence = self.extract_evidence(
+            source,
+            research_id=research_id,
+            topic=topic,
+            max_evidence=max_evidence,
+        )
+        for ev in fallback_evidence:
+            ev.metadata.update(llm_receipt)
+        return fallback_evidence
 
     def extract_evidence_from_text(
         self,

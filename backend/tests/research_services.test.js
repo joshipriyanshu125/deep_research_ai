@@ -9,9 +9,11 @@ const {
 const {
     sourceSupportsClaim,
     sourceContradictsClaim,
-    verificationQuery
+    verificationQuery,
+    verifyEvidence
 } = require('../src/services/verificationEngine');
-const { citationsFromSources, fallbackReport } = require('../src/services/reportGenerator');
+const { evidenceFromSources, analyzeEvidence } = require('../src/services/evidenceEngine');
+const { citationsFromSources, fallbackReport, generateReport } = require('../src/services/reportGenerator');
 
 test('decodes public search redirect URLs before persistence', () => {
     const target = 'https://example.org/report?utm_source=search';
@@ -73,6 +75,56 @@ test('keeps verification queries claim-specific', () => {
     const query = verificationQuery({ claim: 'EV registrations increased by 42% in 2026' }, 'Indian EV market');
     assert.match(query, /EV registrations increased by 42% in 2026/);
     assert.match(query, /Indian EV market/);
+});
+
+test('does not turn an empty source into evidence from the user query', () => {
+    const query = 'What is the current electric vehicle market size?';
+    const evidence = evidenceFromSources([
+        { url: 'https://empty.example/source', content: '', snippet: '' }
+    ], query);
+
+    assert.deepEqual(evidence, []);
+    assert.equal(evidence.some((item) => item.claim.includes(query)), false);
+    assert.deepEqual(analyzeEvidence([], [], query).trends, []);
+});
+
+test('reports disabled verification as no successful verification calls', async () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'test';
+    try {
+        const result = await verifyEvidence([
+            { id: 'e1', claim: 'A claim grounded in a source passage', confidence: 0.8, verificationStatus: 'pending', sourceUrl: 'https://source.example' }
+        ], [], 'test query');
+        assert.equal(result.attempted, false);
+        assert.equal(result.attemptedCalls, 0);
+        assert.equal(result.successfulCalls, 0);
+    } finally {
+        if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+        else process.env.NODE_ENV = previousNodeEnv;
+    }
+});
+
+test('keeps report telemetry deterministic when a Gemini key is merely configured', async () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    const previousApiKey = process.env.GEMINI_API_KEY;
+    process.env.NODE_ENV = 'test';
+    process.env.GEMINI_API_KEY = 'test-only-configured-key';
+    try {
+        const report = await generateReport({
+            query: 'A grounded query',
+            analysis: { summary: 'Grounded summary', findings: [], comparisons: [] },
+            evidence: [{ id: 'e1', claim: 'A sufficiently long grounded source passage for testing.', sourceUrl: 'https://source.example' }],
+            factChecks: [],
+            sources: [{ title: 'Source', url: 'https://source.example', sourceType: 'web' }]
+        });
+        assert.equal(report.reportEngine, 'deterministic');
+        assert.equal(report.reportWriter, 'Deterministic Grounded Generator');
+    } finally {
+        if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+        else process.env.NODE_ENV = previousNodeEnv;
+        if (previousApiKey === undefined) delete process.env.GEMINI_API_KEY;
+        else process.env.GEMINI_API_KEY = previousApiKey;
+    }
 });
 
 test('marks verification sources in citation output and fallback reports', () => {

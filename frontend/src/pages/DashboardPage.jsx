@@ -21,7 +21,16 @@ const AGENTS = [
 export default function DashboardPage() {
   const [history, setHistory] = useState([]);
   const [activeJobId, setActiveJobId] = useState(null);
-  const { job, report, isPolling, error, startPolling } = useResearch();
+  const {
+    job,
+    report,
+    isPolling,
+    isCancelling,
+    error,
+    notice,
+    startPolling,
+    cancelActiveResearch,
+  } = useResearch();
 
   // Quick Answer state
   const [quickAnswerData, setQuickAnswerData] = useState(null); // { answer, query, model }
@@ -71,7 +80,7 @@ export default function DashboardPage() {
     if (!isPolling && job) loadHistory();
   }, [isPolling, job]);
 
-  const showMission = isPolling || (job && !report);
+  const showMission = Boolean(activeJobId) && (isPolling || (job && !report));
   const showReport = !!report;
   const showQuickAnswer = !!quickAnswerData && !showMission && !showReport;
 
@@ -117,6 +126,9 @@ export default function DashboardPage() {
         {error && !isPolling && (
           <div className="auth-error-box">⚠ {error}</div>
         )}
+        {notice && !isPolling && (
+          <div className="notice-box">✓ {notice}</div>
+        )}
 
         {/* ── Quick Answer ── */}
         {showQuickAnswer && (
@@ -133,7 +145,12 @@ export default function DashboardPage() {
         {/* ── Mission Control ── */}
         {showMission && (
           <div className="holo-card mission-card">
-            <MissionControl job={job} jobId={activeJobId} />
+            <MissionControl
+              job={job}
+              jobId={activeJobId}
+              onCancel={cancelActiveResearch}
+              isCancelling={isCancelling}
+            />
           </div>
         )}
 

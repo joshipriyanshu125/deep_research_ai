@@ -110,6 +110,23 @@ class SearchResultProcessor:
         metadata = raw_result.get("metadata", {})
         if not isinstance(metadata, dict):
             metadata = {}
+        else:
+            metadata = dict(metadata)
+
+        # Preserve the provider and retrieval state all the way into Source.
+        # Search result fields are deliberately copied rather than inferred
+        # from a domain: the same domain can be returned by several engines.
+        search_provider = (
+            raw_result.get("search_provider")
+            or raw_result.get("provider")
+            or raw_result.get("engine")
+            or raw_result.get("source_database")
+        )
+        if search_provider:
+            metadata.setdefault("search_provider", str(search_provider))
+        metadata.setdefault("retrieval_method", "live_search")
+        metadata.setdefault("content_provenance", "snippet" if snippet else "metadata-only")
+        metadata.setdefault("evidence_eligible", bool(snippet))
 
         return ProcessedSearchResult(
             url=url,
@@ -160,13 +177,18 @@ class SearchResultProcessor:
         """
         Convert a ProcessedSearchResult into a fully-fledged database Source object.
         """
+        text_clean = clean_text if clean_text is not None else processed.snippet
+        text_raw = raw_content if raw_content is not None else text_clean
         meta = dict(processed.metadata)
         if additional_metadata:
             meta.update(additional_metadata)
         meta["query_used"] = processed.query
-
-        text_clean = clean_text if clean_text is not None else processed.snippet
-        text_raw = raw_content if raw_content is not None else text_clean
+        meta.setdefault("search_provider", "unknown")
+        meta.setdefault(
+            "content_provenance",
+            "fetched" if clean_text and clean_text != processed.snippet else ("snippet" if processed.snippet else "metadata-only"),
+        )
+        meta.setdefault("evidence_eligible", bool(text_clean and str(text_clean).strip()))
 
         return Source(
             research_id=research_id,

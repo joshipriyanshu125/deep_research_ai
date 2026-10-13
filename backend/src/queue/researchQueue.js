@@ -84,7 +84,7 @@ class ResearchQueue {
 
         if (mongoose.connection.readyState !== 1) return null;
 
-        const research = await Research.findById(idStr);
+        let research = await Research.findById(idStr);
         if (!research) {
             throw new Error("Research not found");
         }
@@ -93,10 +93,23 @@ class ResearchQueue {
             return research;
         }
 
+        // If cancellation and resume arrive together, let the existing
+        // worker finish its abort boundary before deciding whether to enqueue
+        // a fresh attempt. This keeps one active worker per research id.
+        if (researchWorker.isJobActive(idStr)) {
+            await researchWorker.waitForJob(idStr);
+            research = await Research.findById(idStr);
+            if (!research || research.status === "completed") return research;
+        }
+
         // Use state machine to transition to QUEUED
-        await stateMachine.transition(research, stateMachine.STATES.QUEUED, {
-            message: "Research job resumed and added back to queue."
-        });
+        if (research.status !== stateMachine.STATES.QUEUED) {
+            const queued = await stateMachine.transition(idStr, stateMachine.STATES.QUEUED, {
+                message: "Research job resumed and added back to queue."
+            });
+            if (!queued) return await Research.findById(idStr);
+            research = queued;
+        }
 
         // Enqueue
         await this.addJob(idStr);
