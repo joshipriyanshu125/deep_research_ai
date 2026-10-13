@@ -154,6 +154,14 @@ class ResearchStateMachine {
 
         // A missing update means the state changed after it was read (usually
         // because Stop won the race). Do not resurrect the stale state.
+        if (updated && isDocument) {
+            // Advance the caller's CAS snapshot, without making these fields
+            // dirty: later artifact saves must not write over a Stop status.
+            for (const field of Object.keys(set)) {
+                research[field] = updated[field];
+                research.unmarkModified?.(field);
+            }
+        }
         return updated || null;
     }
 

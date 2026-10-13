@@ -68,8 +68,10 @@ async def get_research_status(job_id: str):
 
 
 @router.post("/{job_id}/cancel", response_model=ResearchJob)
-async def cancel_research(job_id: str):
+async def cancel_research(job_id: str, current_user: Optional[UserInDB] = Depends(get_current_user)):
     job = await research_service.get_job_status(job_id)
+    if job.user_id != (current_user.id if current_user else "anonymous"):
+        raise HTTPException(status_code=403, detail="Research run access denied")
     return await research_service.cancel_research(job)
 
 @router.get("/{job_id}/events", response_model=List[ResearchEventRecord])

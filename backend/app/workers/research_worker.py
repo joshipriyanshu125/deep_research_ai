@@ -1,8 +1,7 @@
 import asyncio
-from datetime import datetime, timezone
 from app.database.models.research import ResearchJob, ResearchStatus
 from app.database.repositories.research_repo import research_repo
-from app.research.orchestrator import research_orchestrator
+from app.workers.research_runner import run_research_job
 from app.services.notification_service import notification_service
 from app.utils.logger import logger
 
@@ -13,10 +12,9 @@ class ResearchWorker:
         self.is_running = False
         self._active_jobs = set()
         self._running_tasks = {}
-        self._cancelled_jobs = set()
 
     async def enqueue_job(self, job: ResearchJob):
-        if job.status == ResearchStatus.CANCELLED or job.id in self._cancelled_jobs:
+        if job.status == ResearchStatus.CANCELLED:
             return
         if job.id not in self._active_jobs:
             self._active_jobs.add(job.id)
@@ -25,33 +23,14 @@ class ResearchWorker:
 
     async def cancel_job(self, job_id: str):
         """Cancel one queued or running job without stopping the worker loop."""
-        job = await research_repo.get_job(job_id)
+        job = await research_repo.cancel_job(job_id)
         if not job:
             return None
-
-        if job.status in {ResearchStatus.COMPLETED, ResearchStatus.FAILED}:
+        if job.status != ResearchStatus.CANCELLED:
             return job
-        if job.status == ResearchStatus.CANCELLED:
-            return job
-
-        self._cancelled_jobs.add(job_id)
         running_task = self._running_tasks.get(job_id)
         if running_task and not running_task.done():
             running_task.cancel()
-
-        job.status = ResearchStatus.CANCELLED
-        job.progress_percentage = 0
-        job.current_step = "Research cancelled by user."
-        job.error_message = None
-        job.checkpoint_phase = "cancelled"
-        job.completed_at = datetime.now(timezone.utc)
-        job.logs.append({
-            "timestamp": datetime.now(timezone.utc),
-            "stage": "cancelled",
-            "state": ResearchStatus.CANCELLED,
-            "message": "Research job was cancelled by user.",
-        })
-        await research_repo.update_job(job)
 
         # Wait for the pipeline task to unwind so a late save cannot race a
         # newly started run. The worker's main loop remains alive.
@@ -60,9 +39,8 @@ class ResearchWorker:
         return job
 
     async def _process_job(self, job: ResearchJob):
-        async for _ in research_orchestrator.run_pipeline_stream(job):
-            pass
-        if job.status != ResearchStatus.CANCELLED:
+        result = await run_research_job(job)
+        if result and result.status == ResearchStatus.COMPLETED:
             await notification_service.notify_research_complete(job.user_id, job.id, job.query)
 
     async def start_worker(self):
@@ -85,12 +63,13 @@ class ResearchWorker:
             try:
                 job: ResearchJob = await self.queue.get()
                 logger.info(f"Worker picked up research job {job.id}")
-                if job.status == ResearchStatus.CANCELLED or job.id in self._cancelled_jobs:
+                latest = await research_repo.get_job(job.id)
+                if not latest or latest.status in {ResearchStatus.CANCELLED, ResearchStatus.COMPLETED}:
                     self._active_jobs.discard(job.id)
                     self.queue.task_done()
                     continue
 
-                processing_task = asyncio.create_task(self._process_job(job))
+                processing_task = asyncio.create_task(self._process_job(latest))
                 self._running_tasks[job.id] = processing_task
                 try:
                     await processing_task
@@ -108,7 +87,6 @@ class ResearchWorker:
                 break
             except Exception as e:
                 logger.error(f"Worker encountered error processing job: {e}")
-                self.queue.task_done()
 
 
 research_worker = ResearchWorker()

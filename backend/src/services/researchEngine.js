@@ -50,7 +50,7 @@ class ResearchEngine {
             };
 
             stage = STATES.PLANNING;
-            if (!await this.transitionOrStop(researchId, STATES.PLANNING, {
+            if (!await this.transitionOrStop(research, STATES.PLANNING, {
                 step: "Query planner is decomposing the research question into investigation tracks",
                 message: `Planner created web, news/paper, market, and other-source tracks for “${research.query}”.`
             }, signal)) return;
@@ -62,7 +62,7 @@ class ResearchEngine {
             if (this.isAborted(signal)) return;
 
             stage = STATES.SEARCHING;
-            if (!await this.transitionOrStop(researchId, STATES.SEARCHING, {
+            if (!await this.transitionOrStop(research, STATES.SEARCHING, {
                 step: "Query planner is generating targeted searches across selected source types",
                 message: `Generated ${plan.tasks.length} targeted research queries.`
             }, signal)) return;
@@ -82,7 +82,7 @@ class ResearchEngine {
             if (this.isAborted(signal)) return;
 
             stage = STATES.COLLECTING;
-            if (!await this.transitionOrStop(researchId, STATES.COLLECTING, {
+            if (!await this.transitionOrStop(research, STATES.COLLECTING, {
                 step: "Source collector is gathering web, news, paper, and public-record results; content extraction is running",
                 message: `Collected ${collected.length} unique sources and started content extraction.`
             }, signal)) return;
@@ -104,7 +104,7 @@ class ResearchEngine {
             await research.save();
 
             stage = STATES.ANALYZING;
-            if (!await this.transitionOrStop(researchId, STATES.ANALYZING, {
+            if (!await this.transitionOrStop(research, STATES.ANALYZING, {
                 step: "Gemini Analysis Agent is analyzing extracted evidence, synthesizing findings, and identifying trends",
                 message: `Analyzing ${evidence.length} evidence items extracted from ${extracted.length} sources.`
             }, signal)) return;
@@ -213,7 +213,7 @@ class ResearchEngine {
                 },
                 verifiedAt: new Date()
             };
-            if (!await this.transitionOrStop(researchId, STATES.VERIFYING, {
+            if (!await this.transitionOrStop(research, STATES.VERIFYING, {
                 step: "Gemini Fact-Check Judge is cross-checking claims and exposing source agreement or uncertainty",
                 message: `${verifiedCount} claims verified with independent sources; ${singleSourceCount} single-source claims labeled with limitations.`
             }, signal)) return;
@@ -222,7 +222,7 @@ class ResearchEngine {
             if (this.isAborted(signal)) return;
 
             stage = STATES.SYNTHESIZING;
-            if (!await this.transitionOrStop(researchId, STATES.SYNTHESIZING, {
+            if (!await this.transitionOrStop(research, STATES.SYNTHESIZING, {
                 step: "Synthesis engine is combining analysis, fact checks, and comparisons into a grounded narrative",
                 message: "Combined verified evidence with explicitly labeled limitations and contradictions."
             }, signal)) return;
@@ -247,7 +247,7 @@ class ResearchEngine {
                 reportWriter: reportData.reportWriter
             };
             research.citations = reportData.citations;
-            if (!await this.transitionOrStop(researchId, STATES.REPORT_GENERATION, {
+            if (!await this.transitionOrStop(research, STATES.REPORT_GENERATION, {
                 step: "Report generator is formatting the research narrative and attaching source citations",
                 message: `Generated a report with ${reportData.citations.length} traceable citations.`
             }, signal)) return;
@@ -272,7 +272,7 @@ class ResearchEngine {
                 verificationSources: verificationSources.length,
                 reportGenerator: reportData.reportWriter
             };
-            if (!await this.transitionOrStop(researchId, STATES.QUALITY_CHECK, {
+            if (!await this.transitionOrStop(research, STATES.QUALITY_CHECK, {
                 step: "Quality check is validating evidence coverage, report coherence, and citation integrity",
                 message: `Quality check completed with score ${research.qualityScore}/100.`
             }, signal)) return;
@@ -316,7 +316,7 @@ class ResearchEngine {
                 return;
             }
 
-            const completed = await this.transitionOrStop(researchId, STATES.COMPLETED, {
+            const completed = await this.transitionOrStop(research, STATES.COMPLETED, {
                 step: "Research completed successfully. Final report published.",
                 message: "Planning, collection, extraction, analysis, fact-checking, reporting, and citation generation completed."
             }, signal);
@@ -377,9 +377,9 @@ class ResearchEngine {
         return Boolean(signal?.aborted);
     }
 
-    async transitionOrStop(researchId, targetState, metadata, signal) {
+    async transitionOrStop(research, targetState, metadata, signal) {
         if (this.isAborted(signal)) return false;
-        return Boolean(await stateMachine.transition(researchId, targetState, metadata));
+        return Boolean(await stateMachine.transition(research, targetState, metadata));
     }
 
     pause(signal, duration = this.stepDelayMs) {

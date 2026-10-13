@@ -25,7 +25,7 @@ from app.config.settings import settings
 from app.database.mongodb import connect_to_mongo, close_mongo_connection, get_database
 from app.database.models.research import ResearchJob, ResearchStatus
 from app.monitoring.metrics import metrics_collector
-from app.research.orchestrator import research_orchestrator
+from app.workers.research_runner import run_research_job
 from app.services.notification_service import notification_service
 from app.services.redis_service import redis_service
 
@@ -138,10 +138,10 @@ class DistributedResearchWorker:
 
             # Execute pipeline
             start_time = asyncio.get_event_loop().time()
-            async for _ in research_orchestrator.run_pipeline_stream(job):
-                pass
+            result = await run_research_job(job)
             duration_ms = (asyncio.get_event_loop().time() - start_time) * 1000
-
+            if not result or result.status != ResearchStatus.COMPLETED:
+                return
             metrics_collector.record_research_completed(duration_ms)
             await notification_service.notify_research_complete(job.user_id, job.id, job.query)
             logger.info(f"Worker [{self.worker_id}] completed Job: {job.id} in {duration_ms:.1f}ms")
