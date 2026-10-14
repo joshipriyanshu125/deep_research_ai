@@ -6,7 +6,7 @@ import QueryInputCard from '../components/research/QueryInputCard';
 import MissionControl from '../components/research/MissionControl';
 import ReportViewer from '../components/research/ReportViewer';
 import QuickAnswerViewer from '../components/research/QuickAnswerViewer';
-import TiltCard from '../components/ui/TiltCard';
+
 import { Cpu, FlaskConical, Network, CheckCircle2, Search, FileText, Zap, Trash2 } from 'lucide-react';
 
 const AGENTS = [
@@ -139,8 +139,7 @@ export default function DashboardPage() {
         </section>
 
         {/* ── Query Input ── */}
-        <TiltCard intensity={6}>
-          <div className="holo-card query-card">
+        <div className="holo-card query-card">
             <QueryInputCard
               onJobCreated={handleJobCreated}
               onQuickAnswer={handleQuickAnswer}
@@ -148,7 +147,6 @@ export default function DashboardPage() {
               initialQuery={deepResearchSeed}
             />
           </div>
-        </TiltCard>
 
         {/* ── Background Running Job Banner ── */}
         {runningJob && (runningJob._id || runningJob.id) !== activeJobId && (
@@ -181,14 +179,12 @@ export default function DashboardPage() {
 
         {/* ── Quick Answer ── */}
         {showQuickAnswer && (
-          <TiltCard intensity={3}>
-            <QuickAnswerViewer
+          <QuickAnswerViewer
               answer={quickAnswerData.answer}
               query={quickAnswerData.query}
               model={quickAnswerData.model}
               onUpgrade={handleUpgradeToDeep}
             />
-          </TiltCard>
         )}
 
         {/* ── Mission Control ── */}

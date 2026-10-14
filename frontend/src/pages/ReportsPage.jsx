@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { getAllReports, deleteReport } from '../api/research';
 import Sidebar from '../components/layout/Sidebar';
 import ReportViewer from '../components/research/ReportViewer';
-import TiltCard from '../components/ui/TiltCard';
+
 import { FileText, Search, Download, Trash2, ExternalLink, Sparkles, BookOpen, Clock, AlertCircle } from 'lucide-react';
 
 export default function ReportsPage() {

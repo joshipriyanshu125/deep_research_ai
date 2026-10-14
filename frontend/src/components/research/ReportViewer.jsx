@@ -2,7 +2,7 @@ import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Copy, Download, Check, FileText, ShieldCheck, Search, Cpu, CheckCircle2, AlertTriangle, Activity } from 'lucide-react';
-import TiltCard from '../ui/TiltCard';
+
 
 export default function ReportViewer({ report }) {
   const [copied, setCopied] = useState(false);
@@ -167,8 +167,7 @@ ${document.querySelector('.markdown-body')?.innerHTML || ''}
 
       {/* ── Verification Telemetry Panel ── */}
       {showTelemetry && telemetryRows.length > 0 && (
-        <TiltCard intensity={3}>
-          <div className="holo-card" style={{ padding: '20px 24px', marginBottom: 20 }}>
+        <div className="holo-card" style={{ padding: '20px 24px', marginBottom: 20 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
               <ShieldCheck size={18} style={{ color: 'var(--accent-green)' }} />
               <span style={{ fontFamily: 'var(--font-mono, "JetBrains Mono", monospace)', fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-primary)' }}>
@@ -226,18 +225,15 @@ ${document.querySelector('.markdown-body')?.innerHTML || ''}
               ))}
             </div>
           </div>
-        </TiltCard>
       )}
 
-      <TiltCard intensity={5}>
-        <div className="holo-card report-card">
+      <div className="holo-card report-card">
           <div className="markdown-body">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
               {fullMarkdown}
             </ReactMarkdown>
           </div>
         </div>
-      </TiltCard>
     </section>
   );
 }
