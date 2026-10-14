@@ -1,987 +1,418 @@
-# 🔎 Autonomous Deep Research AI Agent
+﻿# 🔎 Deep Research AI
 
-An **Autonomous Deep Research AI Agent** that transforms a natural-language research question into a comprehensive, structured, and citation-backed research report.
+> **A fully deployed, autonomous AI research platform that transforms any natural-language question into a comprehensive, citation-backed research report.**
 
-Instead of simply answering a question using a single LLM response, the system **plans the research, searches multiple sources, gathers evidence, analyzes information, verifies important claims, and synthesizes the findings into a final report**.
+🌐 **Live Demo:** [https://deep-research-ai-wine.vercel.app](https://deep-research-ai-wine.vercel.app)
+🔧 **Backend API:** [https://deep-research-ai-38l8.onrender.com](https://deep-research-ai-38l8.onrender.com)
 
-> Example:
->
-> **User:**
-> *"Analyze the Indian EV market and identify the best investment opportunities."*
->
-> **Agent:**
-> Understands the objective → creates a research plan → searches the web → collects sources → analyzes market data → cross-checks claims → identifies opportunities → generates a structured report with citations.
+---
+
+## ✨ What It Does
+
+Instead of a single LLM response, Deep Research AI runs a **full autonomous research pipeline**:
+
+```
+User Query
+   ↓
+Research Planner  (Gemini AI)
+   ↓
+Multi-Source Web Search  (Tavily · Serper · DuckDuckGo · Google News · Wikipedia · OpenAlex · Crossref)
+   ↓
+Source Collection & Content Extraction
+   ↓
+Evidence Engine & Claim Analysis
+   ↓
+Independent Claim Verification
+   ↓
+Gemini Analysis & Synthesis
+   ↓
+Structured Report with Citations
+```
 
 ---
 
 ## 🚀 Features
 
-### 🧠 Autonomous Research Planning
+| Feature | Description |
+|---|---|
+| 🧠 **Autonomous Planning** | Converts a high-level question into a step-by-step research plan |
+| 🌐 **Multi-Source Search** | Searches Tavily, Serper, DuckDuckGo, Google News, Wikipedia, OpenAlex, Crossref |
+| 📚 **Academic Research** | Integrates peer-reviewed papers via OpenAlex and Crossref |
+| 🔬 **Evidence Engine** | Stores claims with supporting/contradicting source links and confidence scores |
+| ✅ **Claim Verification** | Cross-checks key claims against independent sources (excludes original domains) |
+| ⚡ **Parallel Execution** | Independent research tasks run concurrently via an in-memory queue |
+| 📊 **Structured Reports** | Executive summary, findings, competitive landscape, risks, citations |
+| 🤖 **Gemini AI** | Powered by Google Gemini for planning, analysis, and synthesis |
+| 🔐 **Auth System** | JWT-based login/register with access + refresh tokens |
+| 📱 **Glassmorphism UI** | 3D animated React frontend with real-time job tracking |
+| 📈 **Research History** | Full history of all past research jobs, persistent across sessions |
+| 🔄 **Live Status Polling** | Real-time pipeline stage tracking (planning → searching → analyzing → done) |
 
-The system converts a high-level user question into a series of research tasks.
+---
 
-```text
-User Query
-    ↓
-Research Planner
-    ↓
-Research Questions
-    ↓
-Parallel Research Tasks
+## 🏗️ Architecture
+
 ```
-
-The planner determines:
-
-* What information needs to be researched
-* Which topics need deeper investigation
-* Which sources should be searched
-* What evidence is required
-* Which claims need verification
-
----
-
-### 🔎 Multi-Source Web Research
-
-The research agent searches across multiple web sources to collect relevant information.
-
-It can research:
-
-* News
-* Company information
-* Market reports
-* Government sources
-* Industry publications
-* Research papers
-* Documentation
-* Financial information
-* Public datasets
-* Other authoritative sources
-
----
-
-### 📚 Research Paper Analysis
-
-The system can incorporate academic and technical research into the investigation.
-
-```text
-Research Query
-      ↓
-Paper Search
-      ↓
-Paper Retrieval
-      ↓
-Relevant Section Extraction
-      ↓
-Analysis
-      ↓
-Evidence
-```
-
-This allows the agent to combine **web information and academic research**.
-
----
-
-### 🔬 Evidence-Based Analysis
-
-Instead of relying on a single source, the system collects evidence from multiple sources and uses that evidence to construct conclusions.
-
-The research pipeline can identify:
-
-* Supporting evidence
-* Contradicting evidence
-* Missing information
-* Important assumptions
-* Conflicting claims
-* Research gaps
-
----
-
-### ✅ Source & Claim Verification
-
-Important claims can be independently verified against additional sources.
-
-```text
-Claim
- ↓
-Find Supporting Sources
- ↓
-Compare Evidence
- ↓
-Check Consistency
- ↓
-Confidence Assessment
-```
-
-This helps reduce unsupported or hallucinated claims.
-
-The active Node research pipeline records the distinction between source
-discovery and verification. In production it uses configured Tavily/Serper
-providers when available and also has public DuckDuckGo HTML, Google News RSS,
-Wikipedia, OpenAlex, and Crossref discovery paths. After initial extraction,
-the verifier runs claim-specific searches, excludes the original source
-domains, fetches candidate pages, and only marks a claim independently
-verified when a fetched passage matches the claim's wording and metrics.
-Snippet-only, inaccessible, single-source, and contradictory results remain
-explicitly labeled. Research and report records expose `verificationSummary`,
-provider metadata, verification-source citations, and the dashboard displays
-whether live web research and independent checks actually occurred.
-
----
-
-### 🤖 Multi-Agent Architecture
-
-The system is designed around specialized AI agents rather than one large prompt.
-
-Example architecture:
-
-```text
-                    ┌──────────────────┐
-                    │    User Query    │
-                    └────────┬─────────┘
-                             ↓
-                    ┌──────────────────┐
-                    │ Research Planner │
-                    └────────┬─────────┘
-                             ↓
-                 ┌───────────┴───────────┐
-                 ↓                       ↓
-        ┌─────────────────┐     ┌─────────────────┐
-        │   Search Agent  │     │ Research Agent  │
-        └────────┬────────┘     └────────┬────────┘
-                 ↓                       ↓
-            Web Sources             Papers/Data
-                 ↓                       ↓
-                 └───────────┬───────────┘
-                             ↓
-                    ┌──────────────────┐
-                    │ Analysis Agent   │
-                    └────────┬─────────┘
-                             ↓
-                    ┌──────────────────┐
-                    │ Verification     │
-                    │     Agent        │
-                    └────────┬─────────┘
-                             ↓
-                    ┌──────────────────┐
-                    │ Synthesis Agent  │
-                    └────────┬─────────┘
-                             ↓
-                    ┌──────────────────┐
-                    │ Research Report  │
-                    └──────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                    VERCEL (Frontend)                        │
+│  React + Vite · react-router-dom · @react-three/fiber       │
+│  Dashboard · Reports · Agents · Settings · Login/Register   │
+└───────────────────────┬─────────────────────────────────────┘
+                        │  HTTPS (REST API)
+┌───────────────────────▼─────────────────────────────────────┐
+│                   RENDER (Backend)                          │
+│  Node.js · Express · JWT Auth · CORS · In-Memory Queue      │
+│                                                             │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │
+│  │ Auth Routes  │  │Research Routes│  │  Report Routes   │  │
+│  └──────────────┘  └──────┬───────┘  └──────────────────┘  │
+│                           │                                 │
+│  ┌────────────────────────▼────────────────────────────┐   │
+│  │              Research Pipeline                      │   │
+│  │  queryPlanner → researchEngine → evidenceEngine    │   │
+│  │  sourceCollector → verificationEngine              │   │
+│  │  geminiService → reportGenerator                   │   │
+│  └────────────────────────────────────────────────────┘   │
+└───────────────────────┬─────────────────────────────────────┘
+                        │
+          ┌─────────────┴──────────────┐
+          │                            │
+┌─────────▼──────────┐     ┌──────────▼──────────┐
+│  MongoDB Atlas     │     │  Google Gemini API   │
+│  Users · Research  │     │  Planning · Analysis │
+│  Reports · History │     │  Synthesis · Answers │
+└────────────────────┘     └─────────────────────┘
 ```
 
 ---
 
-## 🏗️ System Architecture
-
-The project follows an agentic research pipeline:
-
-```text
-                    USER
-                     │
-                     ▼
-              ┌─────────────┐
-              │ API / Backend│
-              └──────┬──────┘
-                     │
-                     ▼
-             ┌───────────────┐
-             │ Query Analyzer│
-             └───────┬───────┘
-                     │
-                     ▼
-             ┌───────────────┐
-             │ Research      │
-             │ Planner       │
-             └───────┬───────┘
-                     │
-          ┌──────────┼──────────┐
-          ▼          ▼          ▼
-      Web Search   Papers    Data Search
-          │          │          │
-          └──────────┼──────────┘
-                     ▼
-              ┌─────────────┐
-              │ Information │
-              │ Extraction  │
-              └──────┬──────┘
-                     ▼
-              ┌─────────────┐
-              │ Evidence    │
-              │ Store       │
-              └──────┬──────┘
-                     ▼
-              ┌─────────────┐
-              │ Analysis    │
-              │ Agent       │
-              └──────┬──────┘
-                     ▼
-              ┌─────────────┐
-              │ Verification│
-              │ Agent       │
-              └──────┬──────┘
-                     ▼
-              ┌─────────────┐
-              │ Synthesis   │
-              │ Agent       │
-              └──────┬──────┘
-                     ▼
-              ┌─────────────┐
-              │ Final Report│
-              └─────────────┘
-```
-
----
-
-# 🧩 Core Components
-
-## 1. Query Analyzer
-
-Understands the user's research objective and extracts:
-
-* Main topic
-* Research intent
-* Constraints
-* Required outputs
-* Time period
-* Geographic scope
-* Important entities
-
----
-
-## 2. Research Planner
-
-Creates a structured research plan.
-
-For example:
-
-```text
-Question:
-"Analyze the Indian EV market."
-
-Research Plan:
-
-1. Determine current market size
-2. Analyze market growth
-3. Identify major companies
-4. Analyze government policies
-5. Analyze charging infrastructure
-6. Analyze battery technology
-7. Identify market risks
-8. Compare major companies
-9. Identify investment opportunities
-10. Verify important claims
-```
-
----
-
-## 3. Search Agent
-
-Responsible for discovering relevant information from external sources.
-
-The agent determines:
-
-* Search queries
-* Search order
-* Source relevance
-* Source quality
-* Additional searches required
-
----
-
-## 4. Research Agent
-
-Retrieves and processes information from discovered sources.
-
-Responsibilities include:
-
-* Fetching documents
-* Extracting relevant content
-* Cleaning information
-* Identifying useful sections
-* Creating research notes
-* Associating information with sources
-
----
-
-## 5. Evidence Engine
-
-Stores research findings in a structured format.
-
-Example:
-
-```json
-{
-  "claim": "The Indian EV market is growing rapidly.",
-  "evidence": [
-    {
-      "source": "Example Source",
-      "url": "https://example.com",
-      "support": true
-    }
-  ],
-  "confidence": 0.91
-}
-```
-
----
-
-## 6. Verification Agent
-
-Checks whether important claims are supported by reliable evidence.
-
-It can:
-
-* Cross-check claims
-* Compare multiple sources
-* Detect contradictions
-* Identify unsupported statements
-* Assign confidence levels
-
-### Day 29–30: Contradiction and Confidence Representation
-
-Conflicting estimates are surfaced as `CONTRADICTION` findings instead of being
-silently selected. Each finding preserves both claims and investigates likely
-causes, including different years, definitions, datasets, or methodologies.
-Important conclusions expose both the existing numeric confidence score and an
-ordinal `confidence_level` (`HIGH`, `MEDIUM`, or `LOW`) with factors covering
-source quality, source count/agreement, evidence strength, recency, and model
-uncertainty.
-
----
-
-## 7. Analysis Agent
-
-Turns collected evidence into meaningful insights.
-
-For example:
-
-```text
-Raw Data
-   ↓
-Patterns
-   ↓
-Relationships
-   ↓
-Trends
-   ↓
-Insights
-```
-
-The analysis layer can perform:
-
-* Comparisons
-* Trend analysis
-* Risk analysis
-* Competitive analysis
-* Market analysis
-* Opportunity analysis
-
----
-
-## 8. Report Synthesis Agent
-
-Combines all validated research into a final report.
-
-A generated report can contain:
-
-```text
-Executive Summary
-
-Research Methodology
-
-Market Overview
-
-Key Findings
-
-Competitive Landscape
-
-Important Trends
-
-Risks
-
-Opportunities
-
-Analysis
-
-Conclusion
-
-Sources & Citations
-```
-
----
-
-# 💾 Database
-
-The backend uses **MongoDB** for persistent application data.
-
-Possible collections include:
-
-```text
-users
-research_projects
-research_queries
-research_tasks
-research_sources
-research_documents
-research_claims
-research_evidence
-research_reports
-agent_runs
-citations
-```
-
-The database stores information such as:
-
-* Users
-* Research projects
-* Research tasks
-* Search results
-* Sources
-* Extracted content
-* Claims
-* Evidence
-* Citations
-* Agent execution history
-* Generated reports
-
----
-
-# 🔄 Research Workflow
-
-A typical research request follows this pipeline:
-
-```text
-1. User submits research question
-             ↓
-2. Backend creates research project
-             ↓
-3. Query is analyzed
-             ↓
-4. Research plan is generated
-             ↓
-5. Research tasks are created
-             ↓
-6. Search agents execute tasks
-             ↓
-7. Sources are collected
-             ↓
-8. Relevant content is extracted
-             ↓
-9. Evidence is stored
-             ↓
-10. Claims are generated
-             ↓
-11. Claims are verified
-             ↓
-12. Information is analyzed
-             ↓
-13. Findings are synthesized
-             ↓
-14. Citations are attached
-             ↓
-15. Final report is generated
-             ↓
-16. Report is returned to user
-```
-
----
-
-# ⚡ Parallel Research
-
-Independent research tasks can be executed in parallel.
-
-For example:
-
-```text
-                    Research Planner
-                           │
-        ┌──────────────────┼──────────────────┐
-        ↓                  ↓                  ↓
-   Market Size       Competitors        Government Policy
-        │                  │                  │
-        ↓                  ↓                  ↓
-   Research Agent     Research Agent     Research Agent
-        │                  │                  │
-        └──────────────────┼──────────────────┘
-                           ↓
-                     Evidence Store
-```
-
-This allows complex research tasks to be completed more efficiently.
-
----
-
-# 🧠 Memory & Context
-
-The system maintains research context throughout the investigation.
-
-A research project can contain:
-
-```text
-Research Project
- ├── Original Query
- ├── Research Plan
- ├── Tasks
- ├── Sources
- ├── Documents
- ├── Claims
- ├── Evidence
- ├── Agent Runs
- ├── Analysis
- └── Final Report
-```
-
-This prevents individual agents from losing important information during long-running research tasks.
-
----
-
-# 🔐 Backend Responsibilities
-
-The backend handles more than just AI generation.
-
-It is responsible for:
-
-* Authentication
-* Authorization
-* User management
-* Research project management
-* API endpoints
-* Agent orchestration
-* Background jobs
-* Database operations
-* Search integration
-* Document processing
-* Citation management
-* Error handling
-* Logging
-* Rate limiting
-* Caching
-* Usage tracking
-* Research history
-* Report storage
-
----
-
-# 🛠️ Technology Stack
-
-The exact stack can evolve, but the project is designed around technologies such as:
+## 🛠️ Technology Stack
+
+### Frontend
+| Technology | Purpose |
+|---|---|
+| **React 19** | UI framework |
+| **Vite 8** | Build tool & dev server |
+| **react-router-dom v7** | Client-side routing |
+| **@react-three/fiber** | 3D animated background |
+| **@react-three/drei** | Three.js helpers (Stars, Float, Distort) |
+| **three.js** | 3D rendering engine |
+| **lucide-react** | Icon library |
+| **react-markdown + remark-gfm** | Report rendering with GitHub Markdown |
+| **axios** | HTTP client with JWT interceptors & auto-refresh |
+| **Vanilla CSS** | Custom glassmorphism design system |
 
 ### Backend
+| Technology | Purpose |
+|---|---|
+| **Node.js + Express** | REST API server |
+| **MongoDB Atlas + Mongoose** | Persistent data storage |
+| **JWT (access + refresh)** | Stateless authentication |
+| **cors** | Cross-origin request handling |
+| **@google/genai (Gemini)** | AI planning, analysis & synthesis |
+| **Tavily API** | Premium web search |
+| **Serper API** | Google search results |
+| **DuckDuckGo HTML** | Free fallback search |
+| **Google News RSS** | News source discovery |
+| **Wikipedia API** | Encyclopedic reference |
+| **OpenAlex API** | Academic paper search |
+| **Crossref API** | Academic citation lookup |
+| **In-memory job queue** | Background research execution |
+| **bcryptjs** | Password hashing |
+| **nodemailer** | Email (SMTP) |
 
-* Python
-* FastAPI
-* Pydantic
-* AsyncIO
-
-### AI / LLM
-
-* Large Language Models
-* Agent orchestration
-* Structured outputs
-* Tool calling
-
-### Database
-
-* MongoDB
-
-### Search & Research
-
-* Web search APIs
-* Research paper APIs
-* Document retrieval
-* Web scraping / content extraction
-
-### Infrastructure
-
-* Redis
-* Background workers
-* Docker
-
-### Authentication
-
-* JWT
-* Password hashing
-* Role-based authorization
+### Infrastructure & Deployment
+| Service | Role |
+|---|---|
+| **Vercel** | Frontend hosting (CDN + SPA routing) |
+| **Render** | Backend hosting |
+| **MongoDB Atlas** | Cloud database |
+| **GitHub** | Source control + CI/CD trigger |
 
 ---
 
-# 📁 Project Structure
+## 📁 Project Structure
 
-A scalable backend structure can look like:
-
-```text
-backend/
+```
+deep_research_ai/
+├── frontend/                        # React + Vite SPA
+│   ├── src/
+│   │   ├── api/
+│   │   │   ├── axios.js             # Axios instance (JWT interceptors, auto-refresh)
+│   │   │   ├── auth.js              # Auth API calls (login, register, me)
+│   │   │   ├── research.js          # Research API calls
+│   │   │   ├── session.js           # Token storage & session management
+│   │   │   └── errorMessage.js      # Error normalizer
+│   │   ├── components/
+│   │   │   └── 3d/Scene3D.jsx       # Three.js animated background
+│   │   ├── context/
+│   │   │   ├── AuthContext.jsx      # Auth state (user, login, logout, restore)
+│   │   │   ├── ResearchContext.jsx  # Research history & job tracking
+│   │   │   └── ThemeContext.jsx     # Light/dark theme
+│   │   ├── pages/
+│   │   │   ├── DashboardPage.jsx    # Main research interface
+│   │   │   ├── ReportsPage.jsx      # Past reports viewer
+│   │   │   ├── AgentsPage.jsx       # Pipeline stage visualizer
+│   │   │   ├── SettingsPage.jsx     # User settings
+│   │   │   ├── LoginPage.jsx        # Login form
+│   │   │   └── RegisterPage.jsx     # Registration form
+│   │   ├── App.jsx                  # Router + error boundary
+│   │   ├── main.jsx                 # React entry point
+│   │   └── index.css                # Global design system (glassmorphism)
+│   ├── vercel.json                  # Vercel SPA rewrite rules
+│   ├── vite.config.js               # Vite config + dev proxy to backend
+│   └── package.json
 │
-├── app/
-│   ├── main.py
-│   │
-│   ├── api/
-│   │   ├── auth.py
-│   │   ├── users.py
-│   │   ├── research.py
-│   │   ├── reports.py
-│   │   └── health.py
-│   │
-│   ├── agents/
-│   │   ├── planner.py
-│   │   ├── search_agent.py
-│   │   ├── research_agent.py
-│   │   ├── analysis_agent.py
-│   │   ├── verification_agent.py
-│   │   └── synthesis_agent.py
-│   │
-│   ├── services/
-│   │   ├── search_service.py
-│   │   ├── research_service.py
-│   │   ├── citation_service.py
-│   │   ├── document_service.py
-│   │   └── report_service.py
-│   │
-│   ├── models/
-│   │   ├── user.py
-│   │   ├── research.py
-│   │   ├── source.py
-│   │   ├── claim.py
-│   │   └── report.py
-│   │
-│   ├── schemas/
-│   │   ├── auth.py
-│   │   ├── research.py
-│   │   └── report.py
-│   │
-│   ├── database/
-│   │   ├── mongodb.py
-│   │   └── repositories/
-│   │
-│   ├── workers/
-│   │   └── research_worker.py
-│   │
-│   ├── core/
-│   │   ├── config.py
-│   │   ├── security.py
-│   │   └── logging.py
-│   │
-│   └── utils/
+├── backend/                         # Node.js + Express API
+│   ├── src/
+│   │   ├── server.js                # Express app (CORS, routes, error handler)
+│   │   ├── config/db.js             # MongoDB connection
+│   │   ├── routes/
+│   │   │   ├── authRoutes.js        # /auth/*
+│   │   │   ├── researchRoutes.js    # /research/*
+│   │   │   ├── reportRoutes.js      # /reports/*
+│   │   │   ├── adminRoutes.js       # /admin/*
+│   │   │   └── aiRoutes.js          # /ai/* (Gemini quick-answer)
+│   │   ├── controllers/             # Route handler logic
+│   │   ├── models/                  # Mongoose schemas (User, Research, Report)
+│   │   ├── middleware/
+│   │   │   └── databaseReady.js     # Blocks requests until DB is connected
+│   │   ├── services/
+│   │   │   ├── geminiService.js     # Gemini AI integration (planning, synthesis)
+│   │   │   ├── researchEngine.js    # Core research orchestration
+│   │   │   ├── queryPlanner.js      # Converts query → research tasks
+│   │   │   ├── sourceCollector.js   # Multi-provider web search
+│   │   │   ├── contentExtractor.js  # Web page content extraction
+│   │   │   ├── evidenceEngine.js    # Claim & evidence management
+│   │   │   ├── verificationEngine.js# Independent claim verification
+│   │   │   ├── reportGenerator.js   # Final report assembly
+│   │   │   ├── researchStateMachine.js # Job state transitions
+│   │   │   ├── researchQueue.js     # In-memory job queue
+│   │   │   └── researchHttp.js      # HTTP helpers for research
+│   │   ├── queue/                   # Job queue management
+│   │   ├── workers/                 # Background worker process
+│   │   └── utils/                   # Shared utilities
+│   ├── Dockerfile
+│   └── package.json
 │
-├── tests/
-│
-├── Dockerfile
-├── docker-compose.yml
-├── requirements.txt
-├── .env.example
+├── deploy/
+│   └── grafana/dashboards/          # Observability dashboards
+├── docker-compose.prod.yml          # Production Docker Compose
+├── run.ps1                          # Windows dev launcher
 └── README.md
 ```
 
 ---
 
-# 🔌 API Examples
+## 🔌 API Reference
 
 ### Authentication
 
 ```http
-POST /api/auth/register
-POST /api/auth/login
-POST /api/auth/refresh
-POST /api/auth/logout
+POST /api/v1/auth/register       # Register new user
+POST /api/v1/auth/login          # Login → returns access + refresh tokens
+POST /api/v1/auth/refresh        # Refresh access token
+POST /api/v1/auth/logout         # Logout
+GET  /api/v1/auth/me             # Get current user profile
 ```
 
 ### Research
 
 ```http
-POST /api/research
-GET /api/research
-GET /api/research/{research_id}
-DELETE /api/research/{research_id}
-```
-
-### Research Execution
-
-```http
-POST /api/research/{research_id}/start
-GET /api/research/{research_id}/status
-POST /api/research/{research_id}/cancel
+POST   /api/v1/research          # Start a new research job
+GET    /api/v1/research          # List all research jobs for user
+GET    /api/v1/research/:id      # Get research job details + status
+DELETE /api/v1/research/:id      # Delete a research job
 ```
 
 ### Reports
 
 ```http
-GET /api/research/{research_id}/report
-GET /api/reports
-GET /api/reports/{report_id}
+GET /api/v1/reports              # List all generated reports
+GET /api/v1/reports/:id          # Get a specific report
+```
+
+### AI Quick Answer
+
+```http
+POST /api/v1/ai/answer           # Gemini-powered quick answer
+POST /api/v1/quick-answer        # Alias
+```
+
+### Health
+
+```http
+GET /health                      # Server + DB + provider status
 ```
 
 ---
 
-# 📊 Example Research Output
+## 🔄 Research Pipeline Stages
 
-For a query such as:
+Each research job progresses through these tracked stages:
 
-> **"Analyze the Indian EV market and identify the best investment opportunities."**
+```
+pending → planning → searching → collecting → extracting
+        → analyzing → verifying → synthesizing → completed
+                                               ↘ failed
+```
 
-The system can produce:
+The frontend polls the job status and updates the UI in real-time as each stage completes.
 
-```text
-EXECUTIVE SUMMARY
+---
 
-INDIAN EV MARKET
+## 🖥️ Frontend Pages
 
-Market Size
-Market Growth
-Adoption Trends
+| Page | Route | Description |
+|---|---|---|
+| **Dashboard** | `/dashboard` | Submit queries, track active research, view results |
+| **Reports** | `/reports` | Browse and read all past research reports |
+| **Agents** | `/agents` | Visualize the research pipeline and agent statuses |
+| **Settings** | `/settings` | User profile and account preferences |
+| **Login** | `/login` | JWT authentication |
+| **Register** | `/register` | New account creation |
 
-COMPETITIVE LANDSCAPE
+---
 
-Company A
-Company B
-Company C
+## 🔐 Authentication Flow
 
-TECHNOLOGY
-
-Battery Technology
-Charging Infrastructure
-Manufacturing
-
-GOVERNMENT POLICIES
-
-Policy Analysis
-Incentives
-Regulations
-
-INVESTMENT ANALYSIS
-
-Opportunities
-Risks
-Competitive Advantages
-
-CONCLUSION
-
-Key Takeaways
-
-SOURCES
-
-[1] Source
-[2] Source
-[3] Research Paper
-...
+```
+Register/Login
+     ↓
+Backend returns { accessToken, refreshToken }
+     ↓
+Frontend stores in localStorage
+     ↓
+axios interceptor attaches Bearer token to every request
+     ↓
+On 401 → auto-refresh via refreshToken → retry original request
+     ↓
+On refresh failure → logout + redirect to /login
 ```
 
 ---
 
-# 🎯 Project Goals
+## 🌐 Deployment
 
-The primary goal of this project is to build an AI system capable of performing **long-form autonomous research**, rather than producing simple conversational answers.
+### Frontend — Vercel
 
-The system aims to provide:
+The frontend is deployed on **Vercel** with SPA routing handled by `vercel.json`:
 
-* 🔎 Deep research
-* 🧠 Autonomous planning
-* 🌐 Multi-source discovery
-* 📚 Academic research integration
-* 🔬 Evidence-based reasoning
-* ✅ Claim verification
-* 📑 Structured reports
-* 🔗 Source citations
-* ⚡ Parallel task execution
-* 💾 Persistent research history
-
----
-
-# 🚧 Future Improvements
-
-Planned advanced capabilities include:
-
-* Real-time research streaming
-* Improved source credibility scoring
-* Advanced citation verification
-* Knowledge graphs
-* Vector search / semantic retrieval
-* Long-term research memory
-* Multi-model routing
-* Cost-aware model selection
-* Automatic research refinement
-* Human-in-the-loop research
-* Research task retries
-* Advanced observability
-* Usage analytics
-* Team collaboration
-* Export to PDF / Markdown
-* Scheduled research
-* Continuous monitoring
-* Autonomous follow-up research
-
----
-
-# 🔒 Security
-
-Security considerations include:
-
-* JWT authentication
-* Password hashing
-* Input validation
-* API rate limiting
-* Role-based access control
-* Secure environment variables
-* Request validation
-* Database access controls
-* API key protection
-* Secure file processing
-* Audit logging
-
----
-
-# 🧪 Testing
-
-The project is intended to include:
-
-```text
-Unit Tests
-    ↓
-Integration Tests
-    ↓
-API Tests
-    ↓
-Agent Tests
-    ↓
-End-to-End Tests
+```json
+{
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+}
 ```
 
-Important components such as research planning, search, verification, database operations, and report generation should be tested independently.
+The axios client automatically routes to the Render backend in production builds via a hardcoded fallback (no Vercel env vars required).
+
+### Backend — Render
+
+The Express backend runs on **Render**. CORS is configured via the `CORS_ORIGINS` environment variable to allow the Vercel frontend origin.
+
+**Required environment variables on Render:**
+
+| Variable | Value |
+|---|---|
+| `CORS_ORIGINS` | `http://localhost:5173,https://deep-research-ai-wine.vercel.app` |
+| `MONGODB_URL` | Your MongoDB Atlas connection string |
+| `JWT_ACCESS_SECRET` | Strong random secret |
+| `JWT_REFRESH_SECRET` | Strong random secret |
+| `GEMINI_API_KEY` | Google AI Studio API key |
+| `TAVILY_API_KEY` | Tavily search API key (optional) |
+| `SERPER_API_KEY` | Serper.dev API key (optional) |
 
 ---
 
-# 📈 Observability
+## 💻 Local Development
 
-Long-running AI agents require detailed observability.
+### Prerequisites
+- Node.js 18+
+- MongoDB (local or Atlas)
 
-The system tracks:
-
-* Agent execution
-* Task status
-* API requests
-* Search queries
-* LLM calls
-* Token usage
-* Execution time
-* Errors
-* Retries
-* Research progress
-* Source processing
-
-This makes it easier to debug and optimize the system.
-
----
-
-# 🌟 Why This Project?
-
-Traditional AI applications often follow:
-
-```text
-User → LLM → Answer
-```
-
-This project aims to build something closer to:
-
-```text
-User
- ↓
-Planning
- ↓
-Research
- ↓
-Search
- ↓
-Evidence Collection
- ↓
-Verification
- ↓
-Analysis
- ↓
-Synthesis
- ↓
-Citations
- ↓
-Research Report
-```
-
-The objective is to move from **AI that answers questions** toward **AI that can independently perform research tasks**.
-
----
-
-# 🗺️ Development Roadmap
-
-### Phase 1 — Foundation
-
-* Backend setup
-* MongoDB integration
-* Configuration
-* Authentication
-* User management
-* Basic APIs
-
-### Phase 2 — Research Engine
-
-* Research project creation
-* Query analysis
-* Research planner
-* Task management
-* Search integration
-
-### Phase 3 — AI Agents
-
-* Search Agent
-* Research Agent
-* Analysis Agent
-* Verification Agent
-* Synthesis Agent
-
-### Phase 4 — Evidence & Citations
-
-* Source management
-* Claim extraction
-* Evidence storage
-* Citation generation
-* Source verification
-
-### Phase 5 — Production Backend
-
-* Background jobs
-* Redis
-* Caching
-* Rate limiting
-* Logging
-* Error handling
-* Monitoring
-
-### Phase 6 — Advanced Intelligence
-
-* Multi-agent orchestration
-* Parallel research
-* Research memory
-* Knowledge graphs
-* Multi-model routing
-* Autonomous refinement
-
----
-
-# 🤝 Contributing
-
-Contributions, suggestions, and improvements are welcome.
-
-If you would like to contribute:
+### 1. Clone the repo
 
 ```bash
-git clone <repository-url>
-cd <repository-name>
+git clone https://github.com/joshipriyanshu125/deep_research_ai.git
+cd deep_research_ai
+```
 
+### 2. Backend setup
+
+```bash
+cd backend
+npm install
+# Copy and fill in your environment variables
+cp .env.example .env
+node src/server.js
+```
+
+Backend runs at `http://localhost:5000`
+
+### 3. Frontend setup
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Frontend runs at `http://localhost:5173`
+
+The Vite dev server proxies all `/api/*` requests to `http://localhost:5000` automatically — no extra config needed.
+
+### One-command startup (Windows)
+
+```powershell
+.\run.ps1
+```
+
+---
+
+## 🧪 Testing
+
+```bash
+# Frontend tests
+cd frontend && npm test
+
+# Backend tests
+cd backend && npm test
+```
+
+---
+
+## 📈 Observability
+
+The backend exposes a `/health` endpoint with full system status:
+
+```json
+{
+  "status": "ok",
+  "database": "connected",
+  "gemini": { "configured": true, "model": "gemini-flash-lite-latest" },
+  "searchProviders": {
+    "tavily": true,
+    "serper": true,
+    "duckduckgo": true,
+    "googleNews": true,
+    "wikipedia": true,
+    "openalex": true,
+    "crossref": true
+  }
+}
+```
+
+Grafana dashboards are available in `deploy/grafana/dashboards/`.
+
+---
+
+## 🤝 Contributing
+
+```bash
+git clone https://github.com/joshipriyanshu125/deep_research_ai.git
 git checkout -b feature/your-feature
-
-# Make your changes
-
-git add .
-git commit -m "Add your feature"
-
+# make changes
+git commit -m "feat: your feature"
 git push origin feature/your-feature
 ```
 
@@ -989,22 +420,16 @@ Then open a Pull Request.
 
 ---
 
-# 📜 License
+## 📜 License
 
-This project is intended for educational and research purposes.
-
-Add your preferred license here, such as **MIT License**, before publishing the repository.
+MIT License — see [LICENSE](./LICENSE)
 
 ---
 
-# 👨‍💻 Project Status
+## 👨‍💻 Author
 
-🚧 **Currently under active development**
-
-The project is being developed progressively from a basic research backend into a production-ready autonomous deep research system.
+**Priyanshu Joshi** · [joshipriyanshu125@gmail.com](mailto:joshipriyanshu125@gmail.com)
 
 ---
-
-## ⭐ Vision
 
 > **Build an AI research assistant that doesn't just answer — it investigates, verifies, reasons, and reports.**
