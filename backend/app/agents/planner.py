@@ -313,11 +313,8 @@ class PlannerAgent:
     def _resolve_categories(self, query: str, categories: Optional[List[str]]) -> List[str]:
         requested = _normalise_categories(categories)
         if requested:
-            # Filter out academic if user didn't explicitly request academic papers
-            if "academic" in requested and not any(term in query.lower() for term in ["academic", "paper", "arxiv", "pubmed"]):
-                requested = [c for c in requested if c != "academic"]
-                if not requested:
-                    requested = ["market", "web"]
+            # Explicitly requested categories are always respected; the
+            # academic heuristic below only applies to implicit defaults.
             return requested
 
         # Default deep research focuses on market intelligence and live web sources

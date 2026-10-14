@@ -115,6 +115,8 @@ class ResearchEngine {
                 step: "Gemini Analysis Agent is analyzing extracted evidence, synthesizing findings, and identifying trends",
                 message: `Analyzing ${evidence.length} evidence items extracted from ${extracted.length} sources.`
             }, signal)) return;
+            await this.pause(signal);
+            this.checkAbort(signal);
             let analysis = null;
             if (process.env.GEMINI_API_KEY && process.env.NODE_ENV !== "test") {
                 try {
