@@ -13,8 +13,17 @@ import {
 export const AUTH_REFRESH_TIMEOUT_MS = 30000;
 export const AUTH_RETRY_LIMIT = 1;
 
+// In production (Vercel), there is no dev-server proxy so we must send
+// requests directly to the deployed backend. VITE_API_URL is set in the
+// Vercel project environment variables (e.g. https://deep-research-ai-38l8.onrender.com).
+// In local dev the Vite proxy intercepts /api/* so we keep that as fallback.
+const _rawApiUrl = import.meta.env.VITE_API_URL || '';
+const _apiBase = _rawApiUrl
+  ? `${_rawApiUrl.replace(/\/+$/, '')}/api/v1`
+  : '/api';
+
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: _apiBase,
   withCredentials: true,
 });
 
@@ -177,7 +186,7 @@ function firstUsableToken(...values) {
 
 function requestRefreshToken(refreshToken) {
   const request = Promise.resolve().then(() => axios.post(
-    '/api/auth/refresh',
+    `${_apiBase}/auth/refresh`,
     { refreshToken },
     {
       timeout: AUTH_REFRESH_TIMEOUT_MS,
