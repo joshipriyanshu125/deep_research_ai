@@ -1,25 +1,10 @@
-const DEFAULT_CATEGORIES = ["web", "academic", "market"];
+const DEFAULT_CATEGORIES = ["market"];
 
 const CATEGORY_TEMPLATES = {
-    web: {
-        label: "Web search",
-        question: (topic) => `What is the current landscape, background, and key developments for ${topic}?`,
-        query: (topic) => `${topic} current overview key developments`
-    },
-    academic: {
-        label: "News and papers",
-        question: (topic) => `What do recent research papers and news coverage say about ${topic}, including methods, results, and open questions?`,
-        query: (topic) => `${topic} recent research papers evidence`
-    },
     market: {
-        label: "Market and comparison",
+        label: "Market Research",
         question: (topic) => `What are the important organizations, market signals, comparisons, risks, and opportunities related to ${topic}?`,
-        query: (topic) => `${topic} market analysis companies trends risks opportunities`
-    },
-    other: {
-        label: "Other sources",
-        question: (topic) => `What official datasets, documentation, or public records provide useful evidence about ${topic}?`,
-        query: (topic) => `${topic} official data documentation public records`
+        query: (topic) => `${topic} market analysis companies trends risks opportunities competitive landscape`
     }
 };
 

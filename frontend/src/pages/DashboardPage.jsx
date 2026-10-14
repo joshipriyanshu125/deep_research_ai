@@ -7,7 +7,7 @@ import MissionControl from '../components/research/MissionControl';
 import ReportViewer from '../components/research/ReportViewer';
 import QuickAnswerViewer from '../components/research/QuickAnswerViewer';
 import TiltCard from '../components/ui/TiltCard';
-import { Cpu, FlaskConical, Network, CheckCircle2, Search, FileText, Zap } from 'lucide-react';
+import { Cpu, FlaskConical, Network, CheckCircle2, Search, FileText, Zap, Trash2 } from 'lucide-react';
 
 const AGENTS = [
   { icon: <Cpu size={12} />, label: 'Planner' },
@@ -26,6 +26,7 @@ export default function DashboardPage() {
     runningJob,
     selectJob,
     refreshHistory,
+    removeJob,
   } = useResearchContext();
 
   const {
@@ -80,6 +81,16 @@ export default function DashboardPage() {
     setQuickAnswerData(null);
     selectJob(jobId);
     startPolling(jobId);
+  };
+
+  const handleDeleteJob = async (jobId) => {
+    if (!window.confirm('Delete this research session?')) return;
+    try {
+      await removeJob(jobId);
+      setActiveJobId(null);
+    } catch (err) {
+      alert('Could not delete session: ' + (err.response?.data?.message || err.message));
+    }
   };
 
   useEffect(() => {
@@ -179,6 +190,18 @@ export default function DashboardPage() {
               onCancel={cancelActiveResearch}
               isCancelling={isCancelling}
             />
+            {(job?.status === 'completed' || job?.status === 'failed' || job?.status === 'cancelled') && (
+              <div style={{ marginTop: 12, textAlign: 'right' }}>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  style={{ padding: '6px 14px', fontSize: '0.78rem' }}
+                  onClick={() => handleDeleteJob(activeJobId)}
+                >
+                  <Trash2 size={12} style={{ marginRight: 6 }} /> DELETE RESEARCH
+                </button>
+              </div>
+            )}
           </div>
         )}
 

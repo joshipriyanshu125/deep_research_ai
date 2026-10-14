@@ -60,14 +60,6 @@ function parseNewsRss(xml) {
     }).get().filter((item) => item.url && item.title);
 }
 
-function restoreAbstract(index) {
-    const words = [];
-    for (const [word, positions] of Object.entries(index || {})) {
-        for (const position of positions) if (position < 10000) words[position] = word;
-    }
-    return words.join(' ');
-}
-
 async function searchTask(task, signal) {
     if (process.env.NODE_ENV === 'test') {
         return {
@@ -85,33 +77,24 @@ async function searchTask(task, signal) {
     if (process.env.RESEARCH_LIVE_SEARCH === 'false') return { items: [], warning: 'Live search is disabled.' };
     const errors = [];
     const providers = [];
-    if (task.category === 'academic') {
-        providers.push(async () => {
-            const data = await json(`https://api.openalex.org/works?search=${encodeURIComponent(task.query)}&per-page=5&select=title,doi,publication_year,primary_location,abstract_inverted_index`, { signal });
-            return (data.results || []).map((item) => ({
-                title: item.title, url: item.doi || item.primary_location?.landing_page_url,
-                snippet: restoreAbstract(item.abstract_inverted_index),
-                sourceType: 'academic', provider: 'openalex', publicationYear: item.publication_year
-            }));
-        });
-    }
+    
+    // Market research uses news and general search
     if (process.env.TAVILY_API_KEY) providers.push(async () => {
         const data = await json('https://api.tavily.com/search', {
             method: 'POST', signal, headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ api_key: process.env.TAVILY_API_KEY, query: task.query,
-                topic: task.category === 'market' ? 'news' : 'general', max_results: 5 })
+                topic: 'news', max_results: 5 })
         });
         return (data.results || []).map((item) => ({ title: item.title, url: item.url,
             snippet: item.content, relevanceScore: item.score, provider: 'tavily' }));
     });
     if (process.env.SERPER_API_KEY) providers.push(async () => {
-        const news = task.category === 'market';
-        const data = await json(`https://google.serper.dev/${news ? 'news' : 'search'}`, {
+        const data = await json(`https://google.serper.dev/news`, {
             method: 'POST', signal,
             headers: { 'Content-Type': 'application/json', 'X-API-KEY': process.env.SERPER_API_KEY },
             body: JSON.stringify({ q: task.query, num: 5 })
         });
-        return (data[news ? 'news' : 'organic'] || []).map((item) => ({ title: item.title,
+        return (data.news || []).map((item) => ({ title: item.title,
             url: item.link, snippet: item.snippet, provider: 'serper' }));
     });
     // Public providers keep the research engine useful without requiring a
@@ -124,14 +107,11 @@ async function searchTask(task, signal) {
         });
         return parseDuckDuckGoHtml(response.text).map((item) => ({
             ...item,
-            sourceType: task.category === 'market' ? 'news' : task.category,
+            sourceType: 'news',
             relevanceScore: 0.62
         }));
     });
-    // Google News RSS is also used for general and verification queries. It
-    // gives the engine a second public discovery path when a search API is not
-    // configured and, importantly, usually returns publisher domains that can
-    // be independent of an original Wikipedia or academic result.
+    // Google News RSS for market research
     providers.push(async () => {
         const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(task.query)}&hl=en-US&gl=US&ceid=US:en`;
         const response = await request(rssUrl, {
@@ -140,31 +120,8 @@ async function searchTask(task, signal) {
         });
         return parseNewsRss(response.text).slice(0, 3).map((item) => ({
             ...item,
-            sourceType: task.category === 'market' ? 'news' : task.category,
+            sourceType: 'news',
             relevanceScore: 0.6
-        }));
-    });
-    if (task.category === 'web' || task.category === 'other') providers.push(async () => {
-        const data = await json(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(task.query)}&srlimit=5&format=json&origin=*`, { signal });
-        return (data.query?.search || []).map((item) => ({
-            title: item.title,
-            url: `https://en.wikipedia.org/wiki/${encodeURIComponent(item.title.replace(/ /g, '_'))}`,
-            snippet: stripHtml(item.snippet),
-            sourceType: 'web',
-            relevanceScore: 0.55,
-            provider: 'wikipedia'
-        }));
-    });
-    if (task.category === 'academic') providers.push(async () => {
-        const data = await json(`https://api.crossref.org/works?query=${encodeURIComponent(task.query)}&rows=5&select=title,URL,DOI,abstract,published`, { signal });
-        return (data.message?.items || []).map((item) => ({
-            title: Array.isArray(item.title) ? item.title[0] : item.title,
-            url: item.URL || (item.DOI ? `https://doi.org/${item.DOI}` : ''),
-            snippet: stripHtml(item.abstract || ''),
-            sourceType: 'academic',
-            provider: 'crossref',
-            publicationYear: item.published?.['date-parts']?.[0]?.[0],
-            relevanceScore: 0.65
         }));
     });
 
@@ -225,7 +182,6 @@ module.exports = {
     collectSources,
     searchTask,
     normalizeUrl,
-    restoreAbstract,
     parseDuckDuckGoHtml,
     parseNewsRss,
     decodeSearchUrl

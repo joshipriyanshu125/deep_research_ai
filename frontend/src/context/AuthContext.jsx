@@ -16,7 +16,7 @@ import {
 
 const AuthContext = createContext(null);
 
-const AUTH_RESTORE_TIMEOUT_MS = AUTH_REFRESH_TIMEOUT_MS;
+const AUTH_RESTORE_TIMEOUT_MS = 30000; // 30 seconds for session restore
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);

@@ -58,23 +58,23 @@ class ResearchEngine {
 
             stage = STATES.PLANNING;
             if (!await this.transitionOrStop(research, STATES.PLANNING, {
-                step: "Query planner is decomposing the research question into investigation tracks",
-                message: `Planner created web, news/paper, market, and other-source tracks for “${research.query}”.`
+                step: "Query planner is decomposing the research question into market investigation tracks",
+                message: `Planner created market research tracks for “${research.query}”.`
             }, signal)) return;
             const plan = createPlan({ query: research.query, ...options });
             research.plan = plan;
             research.tasks = plan.tasks;
             await research.save();
             await this.pause(signal);
-            if (this.isAborted(signal)) return;
+            this.checkAbort(signal);
 
             stage = STATES.SEARCHING;
             if (!await this.transitionOrStop(research, STATES.SEARCHING, {
-                step: "Query planner is generating targeted searches across selected source types",
-                message: `Generated ${plan.tasks.length} targeted research queries.`
+                step: "Query planner is generating targeted market searches",
+                message: `Generated ${plan.tasks.length} targeted market research queries.`
             }, signal)) return;
             const collected = (await collectSources(plan.tasks, signal)) || [];
-            if (this.isAborted(signal)) return;
+            this.checkAbort(signal);
             if (collected.length === 0) {
                 throw pipelineError("RESEARCH_NO_SOURCES", "Research cannot continue because no sources were collected.");
             }
@@ -86,22 +86,22 @@ class ResearchEngine {
             }));
             await research.save();
             await this.pause(signal);
-            if (this.isAborted(signal)) return;
+            this.checkAbort(signal);
 
             stage = STATES.COLLECTING;
             if (!await this.transitionOrStop(research, STATES.COLLECTING, {
-                step: "Source collector is gathering web, news, paper, and public-record results; content extraction is running",
+                step: "Source collector is gathering market intelligence and live web sources; content extraction is running",
                 message: `Collected ${collected.length} unique sources and started content extraction.`
             }, signal)) return;
             const extracted = (await extractSources(collected, signal)) || [];
-            if (this.isAborted(signal)) return;
+            this.checkAbort(signal);
             if (extracted.length === 0) {
                 throw pipelineError("RESEARCH_NO_EXTRACTED_SOURCES", "Research cannot continue because source extraction returned no sources.");
             }
             research.sources = extracted.map((source) => this.serializeSource(source));
             await research.save();
             await this.pause(signal);
-            if (this.isAborted(signal)) return;
+            this.checkAbort(signal);
 
             const evidence = evidenceFromSources(extracted);
             if (evidence.length === 0) {
@@ -132,7 +132,7 @@ class ResearchEngine {
             research.comparisons = analysis.comparisons;
             await research.save();
             await this.pause(signal);
-            if (this.isAborted(signal)) return;
+            this.checkAbort(signal);
 
             stage = STATES.VERIFYING;
             const verification = await verifyEvidence(evidence, extracted, research.query, signal, {
@@ -226,7 +226,7 @@ class ResearchEngine {
             }, signal)) return;
             await research.save();
             await this.pause(signal, this.stepDelayMs * 3);
-            if (this.isAborted(signal)) return;
+            this.checkAbort(signal);
 
             stage = STATES.SYNTHESIZING;
             if (!await this.transitionOrStop(research, STATES.SYNTHESIZING, {
@@ -236,7 +236,7 @@ class ResearchEngine {
             // Keep synthesis visible long enough for polling clients to render
             // the distinct synthesis stage before report writing begins.
             await this.pause(signal, this.stepDelayMs * 3);
-            if (this.isAborted(signal)) return;
+            this.checkAbort(signal);
 
             stage = STATES.REPORT_GENERATION;
             const reportData = await generateReport({
@@ -261,7 +261,7 @@ class ResearchEngine {
             await research.save();
             // Keep report generation observable before the final quality check.
             await this.pause(signal, this.stepDelayMs * 3);
-            if (this.isAborted(signal)) return;
+            this.checkAbort(signal);
 
             stage = STATES.QUALITY_CHECK;
             const citationCoverage = reportData.citations.length > 0 ? 100 : 0;
@@ -285,7 +285,7 @@ class ResearchEngine {
             }, signal)) return;
             await research.save();
             await this.pause(signal, this.stepDelayMs * 3);
-            if (this.isAborted(signal)) return;
+            this.checkAbort(signal);
 
             if (!research.sources?.length || !research.evidence?.length) {
                 throw pipelineError("RESEARCH_NO_REPORT_GROUNDING", "Research cannot publish a report without sources and evidence.");
@@ -421,6 +421,15 @@ class ResearchEngine {
             signal?.addEventListener("abort", finish, { once: true });
             if (signal?.aborted) finish();
         });
+    }
+
+    // Faster abort check for long-running operations
+    checkAbort(signal) {
+        if (this.isAborted(signal)) {
+            const error = new Error("Research cancelled by user");
+            error.name = "AbortError";
+            throw error;
+        }
     }
 }
 

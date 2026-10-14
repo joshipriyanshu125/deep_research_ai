@@ -138,7 +138,7 @@ export default function MissionControl({ job, jobId, onCancel, isCancelling }) {
         <span className={`badge ${gemini.active ? 'success' : 'amber'}`}>
           {gemini.active
             ? <><Cpu size={11} /> GEMINI: ACTIVE {gemini.model ? `(${gemini.model})` : ''}</>
-            : <><AlertTriangle size={11} /> GEMINI: NOT DETECTED</>
+            : <><AlertTriangle size={11} /> GEMINI: NOT AVAILABLE</>
           }
         </span>
 

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useResearchContext } from '../context/ResearchContext';
 import {
   cancelResearch,
   getResearchById,
@@ -25,6 +26,7 @@ function responsePayload(response) {
  * real server-side cancellation operation for the Stop button.
  */
 export function useResearch() {
+  const { clearPollingJob } = useResearchContext();
   const [job, setJob] = useState(null);
   const [report, setReport] = useState(null);
   const [isPolling, setIsPolling] = useState(false);
@@ -41,7 +43,8 @@ export function useResearch() {
       intervalRef.current = null;
     }
     setIsPolling(false);
-  }, []);
+    clearPollingJob();
+  }, [clearPollingJob]);
 
   const hydrateArtifacts = useCallback(async (researchId, jobData, generation) => {
     const sourceRequest = jobData.sources.length > 0

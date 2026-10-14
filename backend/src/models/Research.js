@@ -109,7 +109,7 @@ const researchSchema = new mongoose.Schema(
         },
         categories: {
             type: [String],
-            default: ["web", "academic", "market"]
+            default: ["market"]
         },
         plan: {
             type: mongoose.Schema.Types.Mixed,

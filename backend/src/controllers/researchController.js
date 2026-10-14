@@ -34,7 +34,7 @@ const createResearch = async (req, res) => {
             topic: topic || "",
             depth: normalizedDepth,
             breadth: Number.isFinite(Number(breadth)) ? Math.max(1, Math.min(8, Number(breadth))) : 3,
-            categories: Array.isArray(categories) ? categories : ["web", "academic", "market"],
+            categories: Array.isArray(categories) ? categories : ["market"],
             isPublic: !!isPublic,
             status: "queued",
             progress: 0,

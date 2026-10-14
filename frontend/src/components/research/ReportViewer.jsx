@@ -80,12 +80,13 @@ ${document.querySelector('.markdown-body')?.innerHTML || ''}
   const totalSources = verification.totalSources || citations.length || 0;
   const liveFetched = verification.liveFetchedSources || 0;
   const providers = verification.providers || [];
+  const hasIndependentVerification = verification.independentVerification || (gemini.active && gemini.factCheckedWithGemini);
 
   const telemetryRows = [
     {
       feature: 'Gemini API integration',
-      status: gemini.active ? 'Confirmed & Active' : verification.independentVerification ? 'Active (heuristic)' : 'Not configured',
-      ok: gemini.active || verification.independentVerification,
+      status: gemini.active ? 'Confirmed & Active' : hasIndependentVerification ? 'Active (heuristic)' : 'Not available',
+      ok: gemini.active || hasIndependentVerification,
       detail: gemini.model ? `Model: ${gemini.model}` : ''
     },
     {

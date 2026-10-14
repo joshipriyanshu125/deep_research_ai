@@ -49,9 +49,6 @@ export default function QueryInputCard({ onJobCreated, onQuickAnswer, disabled, 
     }
   }
 
-  const toggleCategory = (key) =>
-    setCategories((prev) => ({ ...prev, [key]: !prev[key] }));
-
   const handleSubmit = async (requestedMode = mode) => {
     if (loading || disabled) return;
     const trimmed = query.trim();
@@ -95,7 +92,6 @@ export default function QueryInputCard({ onJobCreated, onQuickAnswer, disabled, 
       }
 
       // Deep Research pipeline
-      const cats = Object.entries(categories).filter(([, v]) => v).map(([k]) => k);
       const { data } = await createResearch({
         query: trimmed,
         // The API contract uses a numeric planner depth. Keep the UI labels
@@ -104,7 +100,7 @@ export default function QueryInputCard({ onJobCreated, onQuickAnswer, disabled, 
         depth: { quick: 1, standard: 2, deep: 3 }[depth] || 2,
         research_mode: depth,
         breadth: Number(breadth),
-        categories: ['market', 'web'],
+        categories: ['market'],
       });
       const job = data?.research || data?.data || data;
       const jobId = job?._id || job?.id;
