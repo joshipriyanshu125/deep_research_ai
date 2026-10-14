@@ -22,7 +22,8 @@ class TestCitationModel:
             url="https://niti.gov.in/report/ev-2026",
             source_type="government",
         )
-        assert cit.format_reference(style="standard") == "[1] NITI Aayog EV Report — https://niti.gov.in/report/ev-2026"
+        # Standard style produces markdown link format: [1] [Title](URL) — URL
+        assert cit.format_reference(style="standard") == "[1] [NITI Aayog EV Report](https://niti.gov.in/report/ev-2026) — https://niti.gov.in/report/ev-2026"
 
     def test_format_markdown_reference(self):
         cit = Citation(
@@ -30,6 +31,7 @@ class TestCitationModel:
             title="Reuters Global Energy",
             url="https://reuters.com/markets/energy",
         )
+        # Markdown link style produces bold markdown: [1] **[Title](URL)**
         assert cit.format_reference(style="markdown_link") == "[2] **[Reuters Global Energy](https://reuters.com/markets/energy)**"
 
     def test_citation_trace_dict(self):
@@ -119,8 +121,8 @@ class TestCitationEngine:
         bib = engine.format_bibliography_markdown(citations)
         expected = """## Sources & References
 
-[1] Economic Times EV Market — https://economictimes.com/ev
-[2] Ministry of Heavy Industries — https://heavyindustries.gov.in/scheme
+[1] [Economic Times EV Market](https://economictimes.com/ev) — https://economictimes.com/ev
+[2] [Ministry of Heavy Industries](https://heavyindustries.gov.in/scheme) — https://heavyindustries.gov.in/scheme
 """
         assert bib.strip() == expected.strip()
 
@@ -207,8 +209,8 @@ class TestSynthesizerAgentCitations:
             assert trace.url == "https://autocarpro.in/ev-report"
             assert trace.citation_index == 1
 
-            # Check markdown has inline citation and bibliography
-            assert "[1] AutoCar India EV Report — https://autocarpro.in/ev-report" in report.markdown_content
+            # Check markdown has inline citation and bibliography (markdown link format)
+            assert "[1] [AutoCar India EV Report](https://autocarpro.in/ev-report) — https://autocarpro.in/ev-report" in report.markdown_content
 
 
 
@@ -226,4 +228,4 @@ class TestReportFormatterCitations:
 
         full_md = formatter.format_full_markdown(report)
         assert "India's EV market grew significantly during the period studied.[1]" in full_md
-        assert "[1] SIAM Report — https://siam.in/ev" in full_md
+        assert "[1] [SIAM Report](https://siam.in/ev) — https://siam.in/ev" in full_md
