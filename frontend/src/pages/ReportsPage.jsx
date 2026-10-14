@@ -60,9 +60,17 @@ export default function ReportsPage() {
 
   const filteredReports = reports.filter((r) => {
     const term = search.toLowerCase();
-    const title = (r.title || '').toLowerCase();
-    const summary = (r.summary || r.executiveSummary || '').toLowerCase();
-    return title.includes(term) || summary.includes(term);
+    if (!term) return true;
+    const haystack = [
+      r.title,
+      r.summary,
+      r.executiveSummary,
+      r.executive_summary,
+      r.markdownContent,
+      r.markdown_content,
+      r.content,
+    ].filter(Boolean).join(' ').toLowerCase();
+    return haystack.includes(term);
   });
 
   return (
@@ -136,6 +144,18 @@ export default function ReportsPage() {
                   const isSelected = selectedReport && (selectedReport._id || selectedReport.id) === id;
                   const date = report.createdAt ? new Date(report.createdAt).toLocaleDateString() : 'Recent';
                   const citationsCount = report.citations?.length || 0;
+                  const rawSummary = String(
+                    report.summary
+                    || report.executiveSummary
+                    || report.executive_summary
+                    || report.markdownContent
+                    || report.markdown_content
+                    || report.content
+                    || ''
+                  ).replace(/\s+/g, ' ').replace(/^[#>\-*`\s]+/, '').trim();
+                  const summaryText = rawSummary
+                    ? `${rawSummary.slice(0, 120)}${rawSummary.length > 120 ? '…' : ''}`
+                    : 'Open this report to read the full analysis.';
 
                   return (
                     <div
@@ -151,7 +171,7 @@ export default function ReportsPage() {
                       </div>
                       <h4 className="report-item-title">{report.title || 'Untitled Report'}</h4>
                       <p className="report-item-summary">
-                        {report.summary || report.executiveSummary || report.content?.slice(0, 120) + '…'}
+                        {summaryText}
                       </p>
                       <div className="report-item-footer">
                         <span className="badge purple">

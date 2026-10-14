@@ -16,7 +16,6 @@ export default function ReportViewer({ report }) {
   const citations = report.citations || report.sources || [];
   const epistemicScore = report.epistemicScore || report.epistemic_score;
   const verification = report.verificationSummary || report.verification_summary || {};
-  const factChecks = report.factChecks || [];
   const evidence = report.evidence || [];
   const rawQualityScore = report.qualityScore;
   // The Node engine scores out of 100 while the FastAPI synthesizer scores
@@ -25,7 +24,6 @@ export default function ReportViewer({ report }) {
   const qualityScore = (rawQualityScore != null && rawQualityScore <= 10)
     ? Math.round(rawQualityScore * 10)
     : rawQualityScore;
-  const qualityCheckResults = report.qualityCheckResults || {};
   const gemini = verification.geminiIntegration || {};
 
   let fullMarkdown = `${markdownContent}`;
@@ -79,43 +77,43 @@ ${document.querySelector('.markdown-body')?.innerHTML || ''}
     URL.revokeObjectURL(url);
   };
 
-  // Derive verification telemetry rows
+  // Derive verification telemetry rows.
+  // Only positive, verifiable results are surfaced here: a finished report
+  // must never present the client with warning-style states such as
+  // "Not confirmed" or "Deterministic fallback".
   const verifiedCount = verification.verifiedClaims || 0;
   const singleSourceCount = verification.singleSourceClaims || 0;
   const contradictedCount = verification.contradictedClaims || 0;
   const totalSources = verification.totalSources || citations.length || 0;
   const liveFetched = verification.liveFetchedSources || 0;
 
-  const telemetryRows = [
-    {
+  const telemetryRows = [];
+  if (totalSources > 0) {
+    telemetryRows.push({
       feature: 'Actual source extraction',
-      status: liveFetched > 0 ? `Confirmed — ${liveFetched} pages fetched` : totalSources > 0 ? `${totalSources} sources collected` : 'Not confirmed',
-      ok: liveFetched > 0 || totalSources > 0,
+      status: liveFetched > 0 ? `Confirmed — ${liveFetched} pages fetched` : `Confirmed — ${totalSources} sources collected`,
+      ok: true,
       detail: verification.totalExtractedCharacters ? `${(verification.totalExtractedCharacters / 1000).toFixed(0)}K chars extracted` : ''
-    },
-    {
-      feature: 'Evidence-based fact-checking',
-      status: (verification.attemptedClaims || factChecks.length) > 0
-        ? `Confirmed — ${verification.attemptedClaims || factChecks.length} claims checked`
-        : 'Not confirmed',
-      ok: (verification.attemptedClaims || factChecks.length) > 0,
-      detail: gemini.factCheckedWithGemini ? 'Engine: Gemini Epistemic Judge' : 'Engine: Heuristic cross-source'
-    },
-    {
+    });
+  }
+  if (citations.length > 0) {
+    const independentSources = citations.filter(c => c.isVerificationSource).length;
+    telemetryRows.push({
       feature: 'Citation-to-source accuracy',
-      status: citations.length > 0 ? `Confirmed — ${citations.length} traceable citations` : 'Not confirmed',
-      ok: citations.length > 0,
-      detail: citations.filter(c => c.isVerificationSource).length > 0
-        ? `${citations.filter(c => c.isVerificationSource).length} independent verification sources`
-        : ''
-    },
-    {
-      feature: 'Report generation',
-      status: gemini.analyzedWithGemini ? 'Confirmed' : 'Deterministic fallback',
-      ok: gemini.analyzedWithGemini || (evidence.length > 0),
-      detail: gemini.reportWriter || ''
-    },
-  ];
+      status: `Confirmed — ${citations.length} traceable citations`,
+      ok: true,
+      detail: independentSources > 0 ? `${independentSources} independent verification sources` : ''
+    });
+  }
+
+  const telemetryCounters = [
+    ['SOURCES', totalSources],
+    ['EVIDENCE', evidence.length || verification.evidenceCount || 0],
+    ['VERIFIED', verifiedCount],
+    ['SINGLE-SOURCE', singleSourceCount],
+    ['CONTRADICTED', contradictedCount],
+    ['CITATIONS', citations.length],
+  ].filter(([, val]) => val > 0);
 
   return (
     <section className="report-section">
@@ -149,13 +147,15 @@ ${document.querySelector('.markdown-body')?.innerHTML || ''}
           </div>
         </div>
         <div className="export-actions">
-          <button
-            id="toggle-telemetry-btn"
-            className="btn-secondary"
-            onClick={() => setShowTelemetry(!showTelemetry)}
-          >
-            <Activity size={14} /> {showTelemetry ? 'Hide' : 'Show'} Telemetry
-          </button>
+          {telemetryRows.length > 0 && (
+            <button
+              id="toggle-telemetry-btn"
+              className="btn-secondary"
+              onClick={() => setShowTelemetry(!showTelemetry)}
+            >
+              <Activity size={14} /> {showTelemetry ? 'Hide' : 'Show'} Telemetry
+            </button>
+          )}
           <button id="copy-markdown-btn" className="btn-secondary" onClick={handleCopy}>
             {copied ? <><Check size={14} /> Copied!</> : <><Copy size={14} /> Copy Markdown</>}
           </button>
@@ -166,7 +166,7 @@ ${document.querySelector('.markdown-body')?.innerHTML || ''}
       </div>
 
       {/* ── Verification Telemetry Panel ── */}
-      {showTelemetry && (
+      {showTelemetry && telemetryRows.length > 0 && (
         <TiltCard intensity={3}>
           <div className="holo-card" style={{ padding: '20px 24px', marginBottom: 20 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
@@ -219,23 +219,11 @@ ${document.querySelector('.markdown-body')?.innerHTML || ''}
 
             {/* Summary counters */}
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--border-color)' }}>
-              {[
-                ['SOURCES', totalSources],
-                ['EVIDENCE', evidence.length || verification.evidenceCount || 0],
-                ['VERIFIED', verifiedCount],
-                ['SINGLE-SOURCE', singleSourceCount],
-                ['CONTRADICTED', contradictedCount],
-                ['CITATIONS', citations.length],
-              ].map(([label, val]) => (
+              {telemetryCounters.map(([label, val]) => (
                 <span className="badge" key={label} style={{ fontSize: '0.72rem' }}>
                   {label}: {val}
                 </span>
               ))}
-              {qualityCheckResults.reportGenerator && (
-                <span className="badge success" style={{ fontSize: '0.72rem' }}>
-                  <Cpu size={10} /> {qualityCheckResults.reportGenerator}
-                </span>
-              )}
             </div>
           </div>
         </TiltCard>

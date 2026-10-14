@@ -16,6 +16,48 @@ import {
 
 const POLL_INTERVAL = 2500; // ms
 
+// Finished runs are remembered so that navigating away from the dashboard and
+// back renders the completed report immediately, instead of replaying the live
+// "Decomposing research query…" mission view for one polling round-trip.
+const FINISHED_RUN_CACHE = new Map();
+const FINISHED_RUN_CACHE_LIMIT = 25;
+const FINISHED_RUN_STORAGE_KEY = 'deep_research_finished_run_v1';
+
+function rememberFinishedRun(id, job, report) {
+  if (!id || !job || !report) return;
+  const key = String(id);
+  FINISHED_RUN_CACHE.set(key, { job, report });
+  if (FINISHED_RUN_CACHE.size > FINISHED_RUN_CACHE_LIMIT) {
+    const oldest = FINISHED_RUN_CACHE.keys().next().value;
+    FINISHED_RUN_CACHE.delete(oldest);
+  }
+  // Also persist the latest finished run so a full page reload is instant too.
+  try {
+    sessionStorage.setItem(FINISHED_RUN_STORAGE_KEY, JSON.stringify({ id: key, job, report }));
+  } catch {
+    // Storage unavailable or full — the in-memory cache still works.
+  }
+}
+
+function recallFinishedRun(id) {
+  if (!id) return null;
+  const key = String(id);
+  const cached = FINISHED_RUN_CACHE.get(key);
+  if (cached) return cached;
+  try {
+    const raw = sessionStorage.getItem(FINISHED_RUN_STORAGE_KEY);
+    if (!raw) return null;
+    const saved = JSON.parse(raw);
+    if (saved && String(saved.id) === key && saved.job && saved.report) {
+      FINISHED_RUN_CACHE.set(key, { job: saved.job, report: saved.report });
+      return saved;
+    }
+  } catch {
+    // Corrupt cache entry — ignore it.
+  }
+  return null;
+}
+
 function responsePayload(response) {
   return response?.data?.research || response?.data?.data || response?.data;
 }
@@ -109,7 +151,7 @@ export function useResearch() {
           // Never present a blank document as a finished research report.
           setError('Research finished, but its report contains no content. Please re-run this research.');
         } else {
-          setReport({
+          const nextReport = {
             ...normalizedReport,
             sources: reportSources,
             evidence: reportEvidence,
@@ -126,7 +168,9 @@ export function useResearch() {
                 evidenceCount: reportEvidence.length,
                 attemptedClaims: reportFactChecks.length,
               },
-          });
+          };
+          setReport(nextReport);
+          rememberFinishedRun(researchId, jobData, nextReport);
         }
       }
     }
@@ -179,11 +223,25 @@ export function useResearch() {
     const generation = generationRef.current + 1;
     generationRef.current = generation;
     jobIdRef.current = id;
-    setJob(null);
-    setReport(null);
     setError(null);
     setNotice(null);
     setIsCancelling(false);
+
+    // A finished run we have already hydrated: render it right away so the
+    // mission view never flashes when the user comes back to the dashboard.
+    const cachedRun = recallFinishedRun(id);
+    if (cachedRun && ['completed', 'done'].includes(cachedRun.job?.status?.toLowerCase())) {
+      setJob(cachedRun.job);
+      setReport(cachedRun.report);
+      setIsPolling(false);
+      // Refresh quietly in the background; the report stays on screen while
+      // this runs, so the mission view is never shown again.
+      pollJob(id, generation);
+      return;
+    }
+
+    setJob(null);
+    setReport(null);
     setIsPolling(true);
 
     pollJob(id, generation);

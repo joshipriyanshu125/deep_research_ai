@@ -1250,6 +1250,9 @@ body::before {
   padding: 18px 20px;
   display: flex;
   flex-direction: column;
+  /* The scroll column is a flex container with a max-height; without this the
+     cards are squeezed to fit and only their top row stays visible. */
+  flex-shrink: 0;
   gap: 10px;
   cursor: pointer;
   transition: all var(--transition);

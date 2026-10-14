@@ -97,8 +97,18 @@ export default function DashboardPage() {
     if (!isPolling && job) refreshHistory();
   }, [isPolling, job, refreshHistory]);
 
-  const showMission = Boolean(activeJobId) && (isPolling || (job && !report));
+  const activeHistoryJob = history.find((j) => (j._id || j.id) === activeJobId);
+  const reportPending = ['completed', 'done'].includes(job?.status?.toLowerCase())
+    || ['completed', 'done'].includes(activeHistoryJob?.status?.toLowerCase());
+
+  // A finished run must never replay the live mission view ("Decomposing
+  // research query… 10%") while its report is being fetched — wait for the
+  // report instead of faking progress.
+  const showMission = Boolean(activeJobId)
+    && (isPolling || (job && !report))
+    && !(reportPending && !report && !error);
   const showReport = !!report;
+  const showReportLoading = Boolean(activeJobId) && !showMission && !showReport && !error;
   const showQuickAnswer = !!quickAnswerData && !showMission && !showReport;
 
   return (
@@ -162,7 +172,7 @@ export default function DashboardPage() {
         )}
 
         {/* ── Error ── */}
-        {error && !isPolling && (
+        {error && !isPolling && !showReport && (
           <div className="auth-error-box">⚠ {error}</div>
         )}
         {notice && !isPolling && (
@@ -202,6 +212,32 @@ export default function DashboardPage() {
                 </button>
               </div>
             )}
+          </div>
+        )}
+
+        {/* ── Report Loading ── */}
+        {showReportLoading && (
+          <div
+            className="holo-card"
+            style={{
+              padding: '26px 24px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 10,
+            }}
+          >
+            <span className="spinner" style={{ width: 16, height: 16 }} />
+            <span
+              style={{
+                fontFamily: 'var(--font-mono, "JetBrains Mono", monospace)',
+                fontSize: '0.78rem',
+                letterSpacing: '0.06em',
+                color: 'var(--text-muted)',
+              }}
+            >
+              LOADING RESEARCH REPORT…
+            </span>
           </div>
         )}
 

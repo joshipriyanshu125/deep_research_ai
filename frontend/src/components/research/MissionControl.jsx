@@ -1,4 +1,4 @@
-import { Globe, ShieldCheck, Search, Cpu, AlertTriangle, Square } from 'lucide-react';
+import { Search, Square } from 'lucide-react';
 import TaskTrackList from './TaskTrackList';
 import SourcesList from './SourcesList';
 
@@ -49,7 +49,6 @@ export default function MissionControl({ job, jobId, onCancel, isCancelling }) {
   const factCheckCount = job?.factChecks?.length || 0;
   const citationCount = job?.citations?.length || 0;
   const verification = job?.verificationSummary || {};
-  const gemini = verification.geminiIntegration || {};
   const providers = verification.providers || [];
   const status = job?.status?.toLowerCase();
   const canCancel = Boolean(onCancel)
@@ -125,30 +124,6 @@ export default function MissionControl({ job, jobId, onCancel, isCancelling }) {
         ].map(([label, value]) => (
           <span className="badge" key={label}>{label}: {value}</span>
         ))}
-
-        {/* Live web status */}
-        <span className={`badge ${verification.liveWebResearch ? 'success' : 'amber'}`}>
-          {verification.liveWebResearch
-            ? <><Globe size={11} /> LIVE WEB: CONFIRMED</>
-            : <><AlertTriangle size={11} /> LIVE WEB: NOT CONFIRMED</>
-          }
-        </span>
-
-        {/* Gemini integration status */}
-        <span className={`badge ${gemini.active ? 'success' : 'amber'}`}>
-          {gemini.active
-            ? <><Cpu size={11} /> GEMINI: ACTIVE {gemini.model ? `(${gemini.model})` : ''}</>
-            : <><AlertTriangle size={11} /> GEMINI: NOT AVAILABLE</>
-          }
-        </span>
-
-        {/* Fact-check status */}
-        <span className={`badge ${(verification.independentVerification) ? 'success' : 'amber'}`}>
-          {verification.independentVerification
-            ? <><ShieldCheck size={11} /> CHECKS: {verification.verifiedClaims || 0}/{verification.attemptedClaims || 0} VERIFIED</>
-            : <><AlertTriangle size={11} /> CHECKS: PENDING</>
-          }
-        </span>
 
         {/* Search providers */}
         {providers.length > 0 && (
