@@ -13,11 +13,14 @@ import {
 export const AUTH_REFRESH_TIMEOUT_MS = 30000;
 export const AUTH_RETRY_LIMIT = 1;
 
-// In production (Vercel), there is no dev-server proxy so we must send
-// requests directly to the deployed backend. VITE_API_URL is set in the
-// Vercel project environment variables (e.g. https://deep-research-ai-38l8.onrender.com).
-// In local dev the Vite proxy intercepts /api/* so we keep that as fallback.
-const _rawApiUrl = import.meta.env.VITE_API_URL || '';
+// In production (Vercel) there is no dev-server proxy, so requests must go
+// directly to the deployed backend on Render.
+// Priority: VITE_API_URL env var (set in Vercel dashboard) → hardcoded
+// production URL → local Vite proxy ('/api') for local dev.
+const _rawApiUrl =
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.DEV ? '' : 'https://deep-research-ai-38l8.onrender.com');
+
 const _apiBase = _rawApiUrl
   ? `${_rawApiUrl.replace(/\/+$/, '')}/api/v1`
   : '/api';
