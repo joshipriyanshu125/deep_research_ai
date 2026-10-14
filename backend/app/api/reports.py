@@ -45,6 +45,14 @@ async def get_report_by_research(research_id: str):
     return await report_service.get_report_by_research(research_id)
 
 
+@router.delete("/{report_id}")
+async def delete_report(report_id: str, user: Optional[UserInDB] = Depends(get_current_user)):
+    deleted = await report_repo.delete(report_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return {"success": True, "message": "Report deleted successfully", "id": report_id}
+
+
 @router.get("/{report_id}/citations", response_model=List[Citation])
 async def get_report_citations(report_id: str):
     report = await report_service.get_report_by_id(report_id)

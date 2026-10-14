@@ -1,6 +1,7 @@
-import { NavLink } from 'react-router-dom';
-import { Brain, Compass, FileText, Cpu, Settings, History, LogOut, Radio } from 'lucide-react';
+import { NavLink, useNavigate } from 'react-router-dom';
+import { Brain, Compass, FileText, Cpu, Settings, History, Trash2, LogOut } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useResearchContext } from '../../context/ResearchContext';
 import { logout } from '../../api/auth';
 
 const NAV_ITEMS = [
@@ -10,17 +11,19 @@ const NAV_ITEMS = [
   { to: '/settings', label: 'Settings & Themes', icon: <Settings size={17} /> },
 ];
 
-export default function Sidebar({ history = [], onSelectJob, activeJobId }) {
+export default function Sidebar({ history: propHistory, onSelectJob: propOnSelectJob, activeJobId: propActiveJobId }) {
   const { user, logoutUser } = useAuth();
+  const researchCtx = useResearchContext();
+  const navigate = useNavigate();
+
+  const history = propHistory ?? researchCtx?.history ?? [];
+  const activeJobId = propActiveJobId ?? researchCtx?.activeJobId;
+  const onSelectJob = propOnSelectJob ?? researchCtx?.selectJob;
+  const removeJob = researchCtx?.removeJob;
 
   const handleLogout = async () => {
     try { await logout(); } catch (_) {}
     logoutUser();
-  };
-
-  const getInitials = (name) => {
-    if (!name) return 'OP';
-    return name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
   };
 
   const statusColor = (status) => {
@@ -28,8 +31,32 @@ export default function Sidebar({ history = [], onSelectJob, activeJobId }) {
       case 'completed': return 'success';
       case 'failed': return 'red';
       case 'cancelled': return 'amber';
-      case 'processing': case 'running': return '';
+      case 'processing': case 'running': case 'planning': case 'searching': case 'extracting': case 'analyzing': return 'cyan';
       default: return 'purple';
+    }
+  };
+
+  const isRunningStatus = (status) => {
+    return ['pending', 'planning', 'searching', 'collecting', 'extracting', 'analyzing', 'verifying', 'synthesizing', 'processing', 'running', 'in_progress'].includes(status?.toLowerCase());
+  };
+
+  const handleDelete = async (e, id) => {
+    e.stopPropagation();
+    if (!window.confirm('Delete this research session?')) return;
+    try {
+      if (removeJob) {
+        await removeJob(id);
+      }
+    } catch (err) {
+      alert('Could not delete session: ' + (err.response?.data?.message || err.message));
+    }
+  };
+
+  const handleItemClick = (id) => {
+    if (onSelectJob) {
+      onSelectJob(id);
+    } else {
+      navigate('/dashboard');
     }
   };
 
@@ -74,21 +101,41 @@ export default function Sidebar({ history = [], onSelectJob, activeJobId }) {
           {!history || history.length === 0 ? (
             <div className="empty-history">No active sessions</div>
           ) : (
-            history.map((job) => (
-              <div
-                key={job._id || job.id}
-                className={`history-item ${activeJobId === (job._id || job.id) ? 'active' : ''}`}
-                onClick={() => onSelectJob && onSelectJob(job._id || job.id)}
-                title={job.query}
-              >
-                <div className="history-query-text">{job.query}</div>
-                <div className="history-item-status">
-                  <span className={`badge ${statusColor(job.status)}`} style={{ fontSize: '0.64rem', padding: '1px 6px' }}>
-                    {job.status || 'queued'}
-                  </span>
+            history.map((job) => {
+              const id = job._id || job.id;
+              const isRunning = isRunningStatus(job.status);
+              const isActive = activeJobId === id;
+
+              return (
+                <div
+                  key={id}
+                  className={`history-item ${isActive ? 'active' : ''}`}
+                  onClick={() => handleItemClick(id)}
+                  title={job.query}
+                >
+                  <div className="history-item-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                    <div className="history-query-text">{job.query}</div>
+                    <button
+                      type="button"
+                      className="history-delete-btn"
+                      title="Delete this research"
+                      onClick={(e) => handleDelete(e, id)}
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                  <div className="history-item-status" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
+                    <span className={`badge ${statusColor(job.status)}`} style={{ fontSize: '0.64rem', padding: '1px 6px', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      {isRunning && <span className="spinner" style={{ width: 8, height: 8 }} />}
+                      {isRunning ? 'RUNNING' : (job.status || 'queued')}
+                    </span>
+                    <span style={{ fontSize: '0.62rem', color: 'var(--text-muted)' }}>
+                      {job.created_at ? new Date(job.created_at).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''}
+                    </span>
+                  </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       </div>
@@ -98,22 +145,17 @@ export default function Sidebar({ history = [], onSelectJob, activeJobId }) {
         <div className="status-row">
           <span className="status-dot" />
           <span className="status-label">Engine Online</span>
-          <Radio size={12} style={{ marginLeft: 'auto', opacity: 0.5, color: 'var(--accent-green)' }} />
         </div>
-        {user && (
-          <div className="user-row">
-            <div className="user-info">
-              <div className="user-avatar">{getInitials(user.name || user.username)}</div>
-              <div className="user-meta">
-                <span className="user-name">{user.name || user.username || 'Operator'}</span>
-                <span className="user-email">{user.email}</span>
-              </div>
-            </div>
-            <button className="logout-btn" onClick={handleLogout} title="Sign Out">
-              <LogOut size={13} />
-            </button>
+        <div className="user-profile-row">
+          <div className="avatar-chip">{user?.name ? user.name.slice(0, 2).toUpperCase() : 'OP'}</div>
+          <div className="user-meta">
+            <span className="user-name">{user?.name || 'Operator'}</span>
+            <span className="user-email">{user?.email || 'operator@deep-research.ai'}</span>
           </div>
-        )}
+          <button className="logout-btn" onClick={handleLogout} title="Log Out">
+            <LogOut size={14} />
+          </button>
+        </div>
       </div>
     </aside>
   );

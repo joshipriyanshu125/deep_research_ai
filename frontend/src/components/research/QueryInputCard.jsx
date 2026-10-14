@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Play, Layers, Zap } from 'lucide-react';
 import { createResearch } from '../../api/research';
 import { quickAnswer } from '../../api/research';
@@ -24,6 +24,17 @@ export default function QueryInputCard({ onJobCreated, onQuickAnswer, disabled, 
   const [breadth, setBreadth] = useState(3);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const abortControllerRef = useRef(null);
+
+  const handleCancelQuickAnswer = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setLoading(false);
+    setError('Quick Answer cancelled.');
+  };
+
 
   // The mode only changes when the user asks for it (the Quick Answer
   // "Run Deep Research Instead" action), never automatically. Adjusting state
@@ -58,17 +69,29 @@ export default function QueryInputCard({ onJobCreated, onQuickAnswer, disabled, 
       // Quick Answer is deliberately explicit. A response that asks for deep
       // research must never silently create a background job.
       if (submissionMode === 'quick') {
-        const { data } = await quickAnswer(trimmed);
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+        try {
+          const { data } = await quickAnswer(trimmed, { signal: controller.signal });
 
-        if (data.mode === 'quick' && data.answer) {
-          // Gemini answered directly
-          if (onQuickAnswer) onQuickAnswer({ answer: data.answer, query: trimmed, model: data.model });
-          setQuery('');
+          if (data.mode === 'quick' && data.answer) {
+            // Gemini answered directly
+            if (onQuickAnswer) onQuickAnswer({ answer: data.answer, query: trimmed, model: data.model });
+            setQuery('');
+            return;
+          }
+
+          setError('Quick Answer is unavailable for this query. Select Deep Research to run the full source-backed pipeline.');
           return;
+        } catch (err) {
+          if (err.name === 'CanceledError' || err.code === 'ERR_CANCELED' || err.message?.includes('canceled') || err.message?.includes('aborted')) {
+            setError('Quick Answer cancelled.');
+            return;
+          }
+          throw err;
+        } finally {
+          abortControllerRef.current = null;
         }
-
-        setError('Quick Answer is unavailable for this query. Select Deep Research to run the full source-backed pipeline.');
-        return;
       }
 
       // Deep Research pipeline
@@ -191,6 +214,17 @@ export default function QueryInputCard({ onJobCreated, onQuickAnswer, disabled, 
       {isQuickMode && (
         <div className="options-bar">
           <div className="options-spacer" />
+          {loading && (
+            <button
+              type="button"
+              className="btn-cancel"
+              style={{ marginRight: 10, padding: '8px 14px', fontSize: '0.78rem' }}
+              onClick={handleCancelQuickAnswer}
+              title="Cancel Quick Answer"
+            >
+              ✕ CANCEL ANSWER
+            </button>
+          )}
           <button id="quick-answer-btn" className="btn-quick" onClick={() => handleSubmit('quick')} disabled={loading || disabled}>
             {loading
               ? <><span className="spinner" style={{ width: 14, height: 14 }} /> THINKING…</>

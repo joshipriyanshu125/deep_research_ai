@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import React from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
+import { ResearchProvider } from './context/ResearchContext';
 import Scene3D from './components/3d/Scene3D';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
@@ -100,6 +101,7 @@ export default function App() {
           <Scene3D />
 
           <BrowserRouter>
+            <ResearchProvider>
             <Routes>
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
               <Route
@@ -128,6 +130,7 @@ export default function App() {
               />
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>
+            </ResearchProvider>
           </BrowserRouter>
         </AuthProvider>
       </ThemeProvider>

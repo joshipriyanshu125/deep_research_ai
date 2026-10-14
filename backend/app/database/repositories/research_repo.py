@@ -36,6 +36,22 @@ class ResearchRepository:
             self._jobs[job.id] = job.model_copy(deep=True)
         return job
 
+    async def delete_job(self, job_id: str) -> bool:
+        if db_manager.is_connected:
+            res = await db_manager.db.research_jobs.delete_one({"id": job_id})
+            # Clean up child artifacts
+            try:
+                await db_manager.db.reports.delete_many({"research_id": job_id})
+                await db_manager.db.research_tasks.delete_many({"research_id": job_id})
+                await db_manager.db.research_sources.delete_many({"research_id": job_id})
+                await db_manager.db.evidence.delete_many({"research_id": job_id})
+            except Exception:
+                pass
+            return res.deleted_count > 0
+        deleted = job_id in self._jobs
+        self._jobs.pop(job_id, None)
+        return deleted
+
     async def cancel_job(self, job_id: str) -> Optional[ResearchJob]:
         """Stop wins atomically over any subsequent worker checkpoint write."""
         now = get_utc_now()

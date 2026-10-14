@@ -17,15 +17,24 @@ export default function ReportsPage() {
   const loadReports = async () => {
     setLoading(true);
     setError('');
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+
     try {
-      const { data } = await getAllReports();
-      const list = Array.isArray(data) ? data : data.reports || data.data || [];
+      const { data } = await getAllReports({ signal: controller.signal });
+      clearTimeout(timeout);
+      const list = Array.isArray(data) ? data : data?.reports || data?.data || [];
       setReports(list);
       if (list.length > 0 && !selectedReport) {
         setSelectedReport(list[0]);
       }
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to load reports archive.');
+      clearTimeout(timeout);
+      if (err.name === 'CanceledError' || err.code === 'ERR_CANCELED') {
+        setError('Loading reports took too long. The server might be warming up. Please retry.');
+      } else {
+        setError(err.response?.data?.message || err.message || 'Failed to load reports archive.');
+      }
     } finally {
       setLoading(false);
     }
@@ -89,7 +98,14 @@ export default function ReportsPage() {
           </button>
         </div>
 
-        {error && <div className="auth-error-box">⚠ {error}</div>}
+        {error && (
+          <div className="auth-error-box" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+            <span>⚠ {error}</span>
+            <button className="btn-primary" style={{ padding: '4px 12px', fontSize: '0.75rem' }} onClick={loadReports}>
+              RETRY ARCHIVE
+            </button>
+          </div>
+        )}
 
         {loading ? (
           <div className="loading-state" style={{ padding: '60px 0', textAlign: 'center' }}>

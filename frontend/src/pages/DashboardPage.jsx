@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getAllResearch } from '../api/research';
+import { useResearchContext } from '../context/ResearchContext';
 import { useResearch } from '../hooks/useResearch';
 import Sidebar from '../components/layout/Sidebar';
 import QueryInputCard from '../components/research/QueryInputCard';
@@ -19,8 +19,15 @@ const AGENTS = [
 ];
 
 export default function DashboardPage() {
-  const [history, setHistory] = useState([]);
-  const [activeJobId, setActiveJobId] = useState(null);
+  const {
+    history,
+    activeJobId,
+    setActiveJobId,
+    runningJob,
+    selectJob,
+    refreshHistory,
+  } = useResearchContext();
+
   const {
     job,
     report,
@@ -34,40 +41,36 @@ export default function DashboardPage() {
 
   // Quick Answer state
   const [quickAnswerData, setQuickAnswerData] = useState(null); // { answer, query, model }
-  // Explicit hand-off from Quick Answer → Deep Research (never automatic).
   const [deepResearchSeed, setDeepResearchSeed] = useState(null);
 
-  const loadHistory = async () => {
-    try {
-      const { data } = await getAllResearch();
-      const jobs = Array.isArray(data) ? data : data.research || data.data || [];
-      setHistory(jobs);
-    } catch (e) {
-      console.warn('Could not load history:', e);
+  // Restore or start polling activeJobId on mount
+  useEffect(() => {
+    if (activeJobId) {
+      startPolling(activeJobId);
+    } else if (runningJob) {
+      const runId = runningJob._id || runningJob.id;
+      setActiveJobId(runId);
+      startPolling(runId);
     }
-  };
-
-  useEffect(() => { loadHistory(); }, []);
+  }, []);
 
   // Called when Deep Research job is created
   const handleJobCreated = (jobId) => {
-    setQuickAnswerData(null); // clear any previous quick answer
-    setActiveJobId(jobId);
+    setQuickAnswerData(null);
+    selectJob(jobId);
     startPolling(jobId);
-    loadHistory();
+    refreshHistory();
   };
 
   // Called when Quick Answer is returned by the router
   const handleQuickAnswer = (data) => {
     setQuickAnswerData(data);
-    setActiveJobId(null); // clear any running deep job display
+    setActiveJobId(null);
   };
 
   // Called when user clicks "Run Deep Research Instead" from QuickAnswerViewer
   const handleUpgradeToDeep = () => {
     if (!quickAnswerData) return;
-    // Explicit user action: move the same question into Deep Research mode
-    // with the textarea pre-filled. Nothing is submitted automatically.
     setDeepResearchSeed(`${quickAnswerData.query}`);
     setQuickAnswerData(null);
     setActiveJobId(null);
@@ -75,13 +78,13 @@ export default function DashboardPage() {
 
   const handleSelectJob = (jobId) => {
     setQuickAnswerData(null);
-    setActiveJobId(jobId);
+    selectJob(jobId);
     startPolling(jobId);
   };
 
   useEffect(() => {
-    if (!isPolling && job) loadHistory();
-  }, [isPolling, job]);
+    if (!isPolling && job) refreshHistory();
+  }, [isPolling, job, refreshHistory]);
 
   const showMission = Boolean(activeJobId) && (isPolling || (job && !report));
   const showReport = !!report;
@@ -125,6 +128,27 @@ export default function DashboardPage() {
             />
           </div>
         </TiltCard>
+
+        {/* ── Background Running Job Banner ── */}
+        {runningJob && (runningJob._id || runningJob.id) !== activeJobId && (
+          <div className="running-job-banner">
+            <div className="running-job-info">
+              <span className="spinner" style={{ width: 14, height: 14 }} />
+              <span>
+                <strong>Research in progress:</strong> "{runningJob.query}" —{' '}
+                <span className="running-job-step">{runningJob.current_step || 'Executing vectors…'}</span>
+              </span>
+            </div>
+            <button
+              type="button"
+              className="btn-primary"
+              style={{ padding: '6px 14px', fontSize: '0.78rem' }}
+              onClick={() => handleSelectJob(runningJob._id || runningJob.id)}
+            >
+              VIEW LIVE PROGRESS →
+            </button>
+          </div>
+        )}
 
         {/* ── Error ── */}
         {error && !isPolling && (

@@ -29,6 +29,14 @@ class ReportRepository:
                 return r
         return None
 
+    async def delete(self, report_id: str) -> bool:
+        if db_manager.is_connected:
+            res = await db_manager.db.reports.delete_one({"id": report_id})
+            return res.deleted_count > 0
+        deleted = report_id in self._reports
+        self._reports.pop(report_id, None)
+        return deleted
+
     async def list_all(self, limit: int = 50) -> List[ResearchReport]:
         if db_manager.is_connected:
             cursor = db_manager.db.reports.find().sort("created_at", -1).limit(limit)
