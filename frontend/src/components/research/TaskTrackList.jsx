@@ -1,5 +1,28 @@
-export default function TaskTrackList({ tasks }) {
+export default function TaskTrackList({ tasks, status }) {
+  const isStopped = ['cancelled', 'failed', 'completed', 'done'].includes(status?.toLowerCase());
+
   if (!tasks || tasks.length === 0) {
+    if (status?.toLowerCase() === 'cancelled') {
+      return (
+        <div className="empty-state" style={{ padding: '16px 0', color: 'var(--text-muted)' }}>
+          Research stopped by user. No active tracks.
+        </div>
+      );
+    }
+    if (status?.toLowerCase() === 'failed') {
+      return (
+        <div className="empty-state" style={{ padding: '16px 0', color: 'var(--text-muted)' }}>
+          Research stopped due to error.
+        </div>
+      );
+    }
+    if (['completed', 'done'].includes(status?.toLowerCase())) {
+      return (
+        <div className="empty-state" style={{ padding: '16px 0', color: 'var(--text-muted)' }}>
+          No tracks recorded for this run.
+        </div>
+      );
+    }
     return (
       <div className="loading-state">
         <span className="spinner" />
@@ -17,8 +40,9 @@ export default function TaskTrackList({ tasks }) {
     }
   };
 
-  const statusColor = (status) => {
-    switch (status?.toLowerCase()) {
+  const statusColor = (taskStatus) => {
+    if (isStopped && taskStatus !== 'completed') return 'amber';
+    switch (taskStatus?.toLowerCase()) {
       case 'completed': case 'done': return 'success';
       case 'failed': return 'red';
       case 'running': case 'processing': return '';
@@ -34,10 +58,10 @@ export default function TaskTrackList({ tasks }) {
             <span className="track-name">Track #{idx + 1}</span>
             <div style={{ display: 'flex', gap: 5 }}>
               <span className={`badge ${categoryColor(t.category)}`}>
-                {t.category?.toUpperCase() || 'WEB'}
+                {t.category?.toUpperCase() || 'RESEARCH'}
               </span>
               <span className={`badge ${statusColor(t.status)}`}>
-                {t.status || 'queued'}
+                {isStopped && t.status !== 'completed' ? 'stopped' : (t.status || 'queued')}
               </span>
             </div>
           </div>

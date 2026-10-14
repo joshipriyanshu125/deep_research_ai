@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Play, Layers, Globe, BookOpen, TrendingUp, Zap } from 'lucide-react';
+import { Play, Layers, Zap } from 'lucide-react';
 import { createResearch } from '../../api/research';
 import { quickAnswer } from '../../api/research';
 import { getErrorMessage } from '../../api/errorMessage';
@@ -22,7 +22,6 @@ export default function QueryInputCard({ onJobCreated, onQuickAnswer, disabled, 
   const [mode, setMode] = useState('quick'); // 'quick' | 'deep'
   const [depth, setDepth] = useState('standard');
   const [breadth, setBreadth] = useState(3);
-  const [categories, setCategories] = useState({ web: true, academic: true, market: true });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -82,7 +81,7 @@ export default function QueryInputCard({ onJobCreated, onQuickAnswer, disabled, 
         depth: { quick: 1, standard: 2, deep: 3 }[depth] || 2,
         research_mode: depth,
         breadth: Number(breadth),
-        categories: cats,
+        categories: ['market', 'web'],
       });
       const job = data?.research || data?.data || data;
       const jobId = job?._id || job?.id;
@@ -178,26 +177,7 @@ export default function QueryInputCard({ onJobCreated, onQuickAnswer, disabled, 
             </select>
           </div>
 
-          <div className="option-group checkbox-group">
-            <label className="check-item">
-              <input type="checkbox" checked={categories.web} onChange={() => toggleCategory('web')} disabled={loading || disabled} />
-              <Globe size={11} /> WEB
-            </label>
-            <label className="check-item">
-              <input type="checkbox" checked={categories.academic} onChange={() => toggleCategory('academic')} disabled={loading || disabled} />
-              <BookOpen size={11} /> ACADEMIC
-            </label>
-            <label className="check-item">
-              <input type="checkbox" checked={categories.market} onChange={() => toggleCategory('market')} disabled={loading || disabled} />
-              <TrendingUp size={11} /> MARKET
-            </label>
-            <label className="check-item">
-              <input type="checkbox" checked={!!categories.other} onChange={() => toggleCategory('other')} disabled={loading || disabled} />
-              <Globe size={11} /> OTHER
-            </label>
-          </div>
-
-          <div className="options-spacer" />
+<div className="options-spacer" />
 
           <button id="launch-research-btn" className="btn-primary" onClick={() => handleSubmit('deep')} disabled={loading || disabled}>
             {loading || disabled

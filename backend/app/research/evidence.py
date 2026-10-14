@@ -480,7 +480,7 @@ class EvidenceExtractor:
         source: Source,
         research_id: str = "",
         topic: Optional[str] = None,
-        use_llm: bool = True,
+        use_llm: bool = False,
         max_evidence: int = 10,
     ) -> List[Evidence]:
         """

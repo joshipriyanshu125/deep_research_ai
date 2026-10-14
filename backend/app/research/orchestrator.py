@@ -130,6 +130,7 @@ class ResearchOrchestrator:
             yield {"event": "status", "data": job.model_dump(mode="json")}
 
             # 1. Planning Phase
+            await self._raise_if_cancelled(job)
             tasks = job.tasks or await research_planner.create_plan(
                 job.query,
                 depth=job.depth,
@@ -154,6 +155,7 @@ class ResearchOrchestrator:
             yield {"event": "plan_ready", "data": {"tasks": [t.model_dump(mode="json") for t in tasks]}}
 
             # 2. Execution Phase
+            await self._raise_if_cancelled(job)
             job.status = ResearchStatus.SEARCHING
             job.checkpoint_phase = "searching"
             job.progress_percentage = 40
@@ -198,6 +200,7 @@ class ResearchOrchestrator:
                 # Persist task completion as each parallel track returns. A
                 # polling client should not see every vector stuck at
                 # "pending" until the entire search phase has finished.
+                await self._raise_if_cancelled(job)
                 job.tasks = tasks
                 finished = sum(1 for task in tasks if task.status in {"completed", "failed"})
                 job.progress_percentage = 40 + round((finished / max(1, len(tasks))) * 20)
@@ -244,6 +247,7 @@ class ResearchOrchestrator:
             }
 
             # 3. Knowledge / RAG Indexing & Evidence Extraction
+            await self._raise_if_cancelled(job)
             job.status = ResearchStatus.EXTRACTING
             job.checkpoint_phase = "extracting"
             job.progress_percentage = 70
@@ -263,7 +267,7 @@ class ResearchOrchestrator:
                     continue
                 evidence_tasks.append(
                     evidence_extractor.extract_evidence_async(
-                        s, job.id, topic=job.query, use_llm=True, max_evidence=10
+                        s, job.id, topic=job.query, use_llm=False, max_evidence=10
                     )
                 )
 
@@ -313,6 +317,7 @@ class ResearchOrchestrator:
             self._record_stage(job, "rag_retrieval", "completed", retrieved_chunk_count=len(rag_context_evidence))
             await research_repo.update_job(job)
 
+            await self._raise_if_cancelled(job)
             # 4. Fact Verification — skipped for quick mode
             job.status = ResearchStatus.ANALYZING
             job.checkpoint_phase = "analyzing"

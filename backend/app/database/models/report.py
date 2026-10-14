@@ -32,7 +32,9 @@ class Citation(BaseModel):
         """
         if style == "markdown_link":
             return f"[{self.index}] **[{self.title}]({self.url})**"
-        return f"[{self.index}] {self.title} — {self.url}"
+        if self.url:
+            return f"[{self.index}] [{self.title}]({self.url}) — {self.url}"
+        return f"[{self.index}] {self.title}"
 
     def to_trace_dict(self) -> Dict[str, Any]:
         """Returns the complete provenance record for verification audit."""

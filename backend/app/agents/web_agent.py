@@ -28,7 +28,7 @@ from app.database.models.source import Source, SourceType, ProcessedSearchResult
 from app.utils.logger import logger
 
 
-EXTRACTION_TIMEOUT_SECONDS = 25.0
+EXTRACTION_TIMEOUT_SECONDS = 8.0
 
 class DeepWebResearchAgent:
     """

@@ -313,16 +313,17 @@ class PlannerAgent:
     def _resolve_categories(self, query: str, categories: Optional[List[str]]) -> List[str]:
         requested = _normalise_categories(categories)
         if requested:
+            # Filter out academic if user didn't explicitly request academic papers
+            if "academic" in requested and not any(term in query.lower() for term in ["academic", "paper", "arxiv", "pubmed"]):
+                requested = [c for c in requested if c != "academic"]
+                if not requested:
+                    requested = ["market", "web"]
             return requested
 
-        # Infer a narrow default plan.  Market is included only when the
-        # objective contains market/commercial intent; technical questions do
-        # not receive unrelated investment tracks.
-        if _MARKET_INTENT.search(query):
-            return ["web", "academic", "market"]
-        if _ACADEMIC_INTENT.search(query):
-            return ["web", "academic"]
-        return ["web"]
+        # Default deep research focuses on market intelligence and live web sources
+        if _ACADEMIC_INTENT.search(query) and any(term in query.lower() for term in ["paper", "academic", "journal", "doi", "arxiv"]):
+            return ["market", "web", "academic"]
+        return ["market", "web"]
 
     @staticmethod
     def _mentions_query(text: str, query: str) -> bool:

@@ -43,10 +43,17 @@ class ResearchWorker:
         if running_task and not running_task.done():
             running_task.cancel()
 
-        # Wait for the pipeline task to unwind so a late save cannot race a
-        # newly started run. The worker's main loop remains alive.
-        if running_task and running_task is not asyncio.current_task():
-            await asyncio.gather(running_task, return_exceptions=True)
+        try:
+            from app.research.events import research_event_bus
+            research_event_bus.emit(
+                "job_cancelled",
+                job_id=job_id,
+                message="Research stopped by user.",
+                data={"job": job.model_dump(mode="json") if hasattr(job, "model_dump") else job.__dict__},
+            )
+        except Exception:
+            pass
+
         return job
 
     async def _process_job(self, job: ResearchJob):

@@ -23,7 +23,7 @@ function getStepText(job) {
   const s = job.status?.toLowerCase();
   if (s === 'queued' || s === 'pending') return 'JOB QUEUED · Waiting for worker node…';
   if (s === 'planning') return 'PLANNER ACTIVE · Decomposing research query…';
-  if (s === 'searching') return 'SEARCH ACTIVE · Running web, academic, and market tracks…';
+  if (s === 'searching') return 'SEARCH ACTIVE · Gathering market intelligence and live web sources…';
   if (s === 'collecting' || s === 'extracting') return 'EXTRACTION ACTIVE · Gathering source-grounded evidence…';
   if (s === 'analyzing') return 'ANALYSIS ACTIVE · Comparing evidence and claims…';
   if (s === 'verifying') return 'FACT CHECK ACTIVE · Cross-checking claims…';
@@ -91,10 +91,10 @@ export default function MissionControl({ job, jobId, onCancel, isCancelling }) {
         <div className="dashboard-card">
           <div className="card-header">
             <span className="card-title">// VECTOR TRACKS</span>
-            <span className="badge">{tasks.length} ACTIVE</span>
+            <span className="badge">{status === 'cancelled' ? 'STOPPED' : `${tasks.length} ACTIVE`}</span>
           </div>
           <div className="card-body">
-            <TaskTrackList tasks={tasks} />
+            <TaskTrackList tasks={tasks} status={status} />
           </div>
         </div>
 

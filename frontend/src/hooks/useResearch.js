@@ -198,6 +198,14 @@ export function useResearch() {
     setError(null);
     setNotice(null);
 
+    // Optimistically reflect cancelled state so UI immediately stops
+    setJob((prev) => (prev ? {
+      ...prev,
+      status: 'cancelled',
+      current_step: 'Research stopped by user.',
+      currentStep: 'Research stopped by user.'
+    } : prev));
+
     try {
       const { data } = await cancelResearch(id);
       const cancelledJob = normalizeJob(data);
