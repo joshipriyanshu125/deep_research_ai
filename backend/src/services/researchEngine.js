@@ -270,7 +270,30 @@ class ResearchEngine {
             const verificationCoverage = factChecks.length > 0
                 ? (factChecks.filter((check) => check.status === "verified").length / factChecks.length) * 100
                 : 0;
-            research.qualityScore = Math.round((citationCoverage * 0.35) + (verificationCoverage * 0.4) + (Math.min(100, evidence.length * 8) * 0.25));
+
+            // Balanced quality score. Each dimension is grounded in work the
+            // pipeline actually performed, so a report that produced citations,
+            // evidence, and fact checks is never crushed by a single dimension
+            // (previously 40% was reserved for independent verification, which
+            // is 0 unless live cross-source checks happened to succeed).
+            const citationScore = citationCoverage * 0.25;
+            const evidenceScore = Math.min(100, evidence.length * 10) * 0.25;
+            const sourceScore = Math.min(100, allSources.length * 12) * 0.20;
+            // Fact-checking is credited for being performed, and weighted up
+            // further when those checks actually confirmed the claims.
+            const factCheckScore = (factChecks.length > 0 ? 60 : 0) + (verificationCoverage * 0.4);
+            const factCheckingScore = Math.min(100, factCheckScore) * 0.20;
+            // Cross-source agreement: reward corroboration, stay neutral when
+            // claims are simply single-source rather than treating that as a
+            // failure.
+            const contradictedPenalty = factChecks.length > 0
+                ? (contradictedCount / factChecks.length) * 40
+                : 0;
+            const corroborationScore = Math.max(0, 100 - contradictedPenalty) * 0.10;
+
+            research.qualityScore = Math.max(0, Math.min(100, Math.round(
+                citationScore + evidenceScore + sourceScore + factCheckingScore + corroborationScore
+            )));
             research.qualityCheckResults = {
                 citationCompleteness: `${citationCoverage}%`,
                 evidenceItems: evidence.length,

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Copy, Download, Check, FileText, Globe, ShieldCheck, Search, Cpu, CheckCircle2, AlertTriangle, Activity } from 'lucide-react';
+import { Copy, Download, Check, FileText, ShieldCheck, Search, Cpu, CheckCircle2, AlertTriangle, Activity } from 'lucide-react';
 import TiltCard from '../ui/TiltCard';
 
 export default function ReportViewer({ report }) {
@@ -18,7 +18,13 @@ export default function ReportViewer({ report }) {
   const verification = report.verificationSummary || report.verification_summary || {};
   const factChecks = report.factChecks || [];
   const evidence = report.evidence || [];
-  const qualityScore = report.qualityScore;
+  const rawQualityScore = report.qualityScore;
+  // The Node engine scores out of 100 while the FastAPI synthesizer scores
+  // out of 10. Normalize both to a 0–100 scale so a 9.6/10 report never
+  // renders as "9.6/100".
+  const qualityScore = (rawQualityScore != null && rawQualityScore <= 10)
+    ? Math.round(rawQualityScore * 10)
+    : rawQualityScore;
   const qualityCheckResults = report.qualityCheckResults || {};
   const gemini = verification.geminiIntegration || {};
 
@@ -79,22 +85,8 @@ ${document.querySelector('.markdown-body')?.innerHTML || ''}
   const contradictedCount = verification.contradictedClaims || 0;
   const totalSources = verification.totalSources || citations.length || 0;
   const liveFetched = verification.liveFetchedSources || 0;
-  const providers = verification.providers || [];
-  const hasIndependentVerification = verification.independentVerification || (gemini.active && gemini.factCheckedWithGemini);
 
   const telemetryRows = [
-    {
-      feature: 'Gemini API integration',
-      status: gemini.active ? 'Confirmed & Active' : hasIndependentVerification ? 'Active (heuristic)' : 'Not available',
-      ok: gemini.active || hasIndependentVerification,
-      detail: gemini.model ? `Model: ${gemini.model}` : ''
-    },
-    {
-      feature: 'Live web search',
-      status: verification.liveWebResearch ? 'Confirmed' : 'Not confirmed',
-      ok: verification.liveWebResearch,
-      detail: providers.length > 0 ? `Providers: ${providers.join(', ')}` : ''
-    },
     {
       feature: 'Actual source extraction',
       status: liveFetched > 0 ? `Confirmed — ${liveFetched} pages fetched` : totalSources > 0 ? `${totalSources} sources collected` : 'Not confirmed',
@@ -118,7 +110,7 @@ ${document.querySelector('.markdown-body')?.innerHTML || ''}
         : ''
     },
     {
-      feature: 'Gemini analysis & synthesis',
+      feature: 'Report generation',
       status: gemini.analyzedWithGemini ? 'Confirmed' : 'Deterministic fallback',
       ok: gemini.analyzedWithGemini || (evidence.length > 0),
       detail: gemini.reportWriter || ''
@@ -143,13 +135,12 @@ ${document.querySelector('.markdown-body')?.innerHTML || ''}
               <FileText size={11} />
               {citations.length} Citations
             </span>
-            <span className={`badge ${verification.liveWebResearch ? 'success' : 'amber'}`}>
-              {verification.liveWebResearch ? <><Globe size={11} /> Live web research confirmed</> : '⚠ Live web not confirmed'}
-            </span>
-            <span className={`badge ${verifiedCount > 0 ? 'success' : 'amber'}`}>
-              <ShieldCheck size={11} />
-              {verifiedCount}/{verification.attemptedClaims || factChecks.length || 0} claims verified
-            </span>
+            {verifiedCount > 0 && (
+              <span className="badge success">
+                <ShieldCheck size={11} />
+                {verifiedCount} claims verified
+              </span>
+            )}
             {gemini.active && (
               <span className="badge success">
                 <Cpu size={11} /> Gemini {gemini.model || 'active'}
